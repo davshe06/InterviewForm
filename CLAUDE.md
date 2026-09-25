@@ -27,11 +27,61 @@ recorded about each area and how each question is phrased.
 | Focus area = must-have / nice-to-have / % of time | Focus area = depth + years + **recency** |
 | Tip: "screen for X" | Tip: "probe for X" / "red flag if they can't explain Y" |
 | Top 3 things the candidate must have | Top 3 things **the candidate wants** |
-| Client's budget / bill rate | Candidate's current comp, target, and floor |
+| Client's budget / bill rate | Candidate's pay: ideal range + bottom end, hourly and salary, W2 / IC / C2C |
 
 **Recency has no equivalent in the source app and matters enormously for
 placement** — "expert, but last touched it four years ago" is a different
 candidate. Build it in rather than bolting it on.
+
+## Decisions so far (agreed with the owner)
+
+- **Pilot: all three catalogs** (Management Resources, Tech, Digital) — all 36
+  roles.
+- **General skills interview**, not tied to a specific job order (bench / MPC).
+- **Exports are internal only for now.** Candidate name, LinkedIn, contact info
+  and current employer all stay in. No client submittal yet (see below).
+- **Pay** (not built yet): one rate range — **ideal** and **bottom end** — with
+  a pay-type selector (**W2 / IC / C2C**), captured as both **hourly and
+  salary**. Choosing C2C reveals the candidate's company details: company name,
+  owner vs. third-party vendor, contact name / email / phone, city/state. No
+  EIN or insurance details (onboarding collects those). Current pay is not
+  asked.
+- **No placeability scale.**
+
+## Experience Depth — the model (built)
+
+Each focus area records, in `state.roles[id].areas[areaId]`:
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `depth` | unset / `none` / `exposure` / `hands_on` / `owned` / `led` | unset = never discussed; `none` = asked, no real experience (a known gap) |
+| `years` | `<1` / `1–2` / `3–5` / `6–9` / `10+` | cumulative years actually doing it |
+| `last` | `"current"` / a year number / `"earlier"` | last hands-on. **Stored as an absolute year**, never "N years ago", so a record reopened months later still reads right; `"current"` is anchored to `state.interviewDate`. `"earlier"` means the year isn't pinned down yet. |
+| `evidence` | `example` / `general` / `claimed` | walked me through it / described generally / résumé only |
+| `interest` | `more` / `avoid` | wants more of it / wants to avoid it |
+
+The depth test shown to recruiters: *could they deliver it tomorrow with nobody
+helping?* Definitions live in `DEPTH_LEVELS` in `app.js`.
+
+**Stale skills.** A Hands-on-or-deeper area whose last hands-on year is
+`STALE_YEARS[formId]` or more years ago (Management 5, Tech 3, Digital 3) shows
+"Last did this in YYYY. Ask what's changed since then and how quickly they'd
+get back up to speed." Other engine-side prompts: Owned/Led on résumé only,
+6+ years of Exposure, strong-but-wants-to-avoid, "earlier" without a year,
+5+ Owned/Led areas. These live in the engine, so they cover every role.
+
+**Placement profile** reuses each role's `profileRules[].must`, matched against
+Owned/Led areas — fresh first ("Currently marketable as"), then counting stale
+ones ("Was marketable as … (stale)"). The rules' `detail` text is written for
+client intake and is not shown.
+
+**Deep dives** show for areas rated Exposure or deeper (Owned/Led open), and
+every one ends with an engine-added **proof point** (`proof_point`). The
+catalogs' deep-dive **tips are hidden**: they coach a client intake and stay
+hidden until the interview overlay rewrites them as probes.
+
+`areaPriority(state, id)` is kept as a shim for the catalog tips that call it:
+Owned/Led → `"must"`, Exposure/Hands-on → `"nice"`, else `"skip"`.
 
 ## Sibling repos — do not modify them
 
@@ -95,7 +145,8 @@ role_id: {
 Question types: `text`, `textarea`, `number`, `select`, `radio`, `chips`
 (multi-select, always allows custom "+ Other…"), `textlist` (N numbered
 short-answer boxes). Conditional display via `showIf(answers, state)`. Tips via
-`when(answers, state)`; `areaPriority(state, id)` reads a focus area's priority.
+`when(answers, state)`; `areaPriority(state, id)` maps a focus area's depth onto
+the old must / nice / skip priority (see Experience Depth above).
 
 ### Reusable machinery worth keeping
 
@@ -108,27 +159,23 @@ short-answer boxes). Conditional display via `showIf(answers, state)`. Tips via
   the client.
 - **Role explainer card**, theming, business selector, `textlist` — all reusable.
 
-## The export logic INVERTS — do not get this backwards
+## Exports — internal only for now
 
-The source app has a full internal export plus a **"candidate PDF"** that strips
-**commercial terms** (bill rate, fees, internal client intel) so it's safe to
-hand a candidate. See `CANDIDATE_EXCLUDE_IDS` / `CANDIDATE_EXCLUDE_SECTIONS`.
+All exports are internal recruiter write-ups and carry everything captured.
+The source app's "Candidate PDF" (and its `CANDIDATE_EXCLUDE_*` lists) has been
+removed: an unaudited "safe to share" export is worse than none.
 
-Here the same mechanism runs in reverse:
+Four export paths must stay in sync when questions change: on-screen summary,
+markdown copy, Word (`docx.js`), and print/PDF. All four read `collectSummary()`,
+so changing that one function keeps them aligned.
 
-- **Internal recruiter export** — everything: current comp, competing
-  interviews, counteroffer risk, recruiter's own assessment.
-- **Client submittal export** — strips **candidate-private** data: current comp,
-  other interviews in play, personal contact details, internal assessment
-  notes. What's left is a professional profile safe to send a client.
-
-Getting this wrong leaks a candidate's current salary to a hiring manager.
-**Treat the exclusion list as a correctness concern, not cosmetics, and assert
-it in a test** — fill the private fields, generate the client export, and assert
-none of those values appear.
-
-Five export paths must stay in sync when questions change: on-screen summary,
-markdown copy, Word (`docx.js`), print/PDF, and the filtered client submittal.
+**If a client submittal is built later**, the logic inverts from the source
+app, and it must **fail closed**: every field opts in to the client export
+(anything unmarked stays internal), a pre-export scan blocks any private value
+(pay normalized to digits, email, phone, C2C company details) found anywhere in
+the rendered output, and a browser test fills the private fields with sentinel
+values and asserts none appear in the markdown, print HTML, or Word XML.
+Getting this wrong leaks a candidate's pay to a hiring manager.
 
 ## Conventions
 
