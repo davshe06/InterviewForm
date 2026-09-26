@@ -33,8 +33,10 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   const step = n => p.locator(".nav-step").nth(n - 1).click();
   const row = label => p.locator(".depth-row", { has: p.locator(".depth-name > span", { hasText: new RegExp("^\\S+ " + esc(label) + "$") }) });
+  const LEVELS = ["None", "Exposure", "Hands-on", "Owned", "Led"];
   const pick = async (label, group, text) => {
     const r = row(label);
+    if (group === "depth") return r.locator(".depth-slider").fill(String(LEVELS.indexOf(text) + 1));
     const sel = { depth: ".depth-head .seg", last: ".depth-last .seg" }[group];
     const loc = sel ? r.locator(sel) : r.locator(".depth-field", { hasText: group === "evidence" ? "Evidence" : "Interest" }).locator(".seg");
     await loc.filter({ hasText: new RegExp("^" + esc(text) + "$") }).click();
@@ -106,12 +108,23 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   /* ---- step 3: skills & deep dive ---- */
   await step(3);
   check(await p.locator("h2").innerText() === "Skills & Deep Dive", "skills step");
-  check(await p.locator(".role-block").count() === 2, "a header block per explored role");
+  check(await p.locator(".role-block:not(.other-skills)").count() === 2, "a header block per explored role");
   check((await p.locator(".role-block-opener").first().innerText()).startsWith("Open with:"), "role opener question shown");
   check((await p.locator(".shared-note").innerText()).includes("Cloud Platforms"), "shared skill listed once, noted on the second role");
   check(await row("Cloud Platforms").count() === 1, "Cloud Platforms rendered exactly once");
   check(await row("Back-End Languages & Frameworks").locator(".depth-detail").count() === 0, "no detail before rating");
   check(await row("Back-End Languages & Frameworks").locator(".dive").count() === 0, "no deep dive before rating");
+  const beRate = row("Back-End Languages & Frameworks").locator(".depth-rate");
+  check(await beRate.evaluate(w => w.classList.contains("unrated")) && (await beRate.locator(".depth-word").innerText()) === "Not rated", "skills start unrated on the slider");
+  await beRate.locator(".depth-tick", { hasText: "Hands-on" }).click();
+  check(await p.evaluate(() => state.skills.backend_languages.depth) === "hands_on" && (await beRate.locator(".depth-score").innerText()).startsWith("3"), "clicking a level name rates the skill (3/5 Hands-on)");
+  await beRate.locator(".depth-slider").evaluate(el => el.dataset.mark = "same");
+  await beRate.locator(".depth-slider").fill("5");
+  check(await beRate.locator(".depth-slider").getAttribute("data-mark") === "same" && (await beRate.locator(".depth-word").innerText()) === "Led",
+    "dragging the slider updates in place (the slider isn't redrawn mid-drag)");
+  await beRate.locator(".link-btn", { hasText: "Clear" }).click();
+  check(await p.evaluate(() => state.skills.backend_languages.depth) === undefined && await row("Back-End Languages & Frameworks").locator(".depth-detail").count() === 0, "Clear makes a skill unrated again");
+  await p.evaluate(() => { delete state.skills.backend_languages.depth; });
   await pick("Back-End Languages & Frameworks", "depth", "Owned");
   await years("Back-End Languages & Frameworks", "6–9");
   await pick("Back-End Languages & Frameworks", "last", "Now");
@@ -164,6 +177,18 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   await years("System Design & Architecture", "10+");
   check(!(await sdDive().evaluate(d => d.open)), "a deep dive the recruiter closed stays closed when the row redraws");
   check(await p.locator(".depth-row .dive").count() === 7, "one deep dive per skill rated Exposure or above");
+
+  /* a skill that isn't listed gets its own slider and context box */
+  check(await p.locator(".other-skills input").isVisible(), "add-a-skill box always shown");
+  await p.locator(".other-skills input").fill("Mainframe COBOL");
+  await p.locator(".other-skills button", { hasText: "Add skill" }).click();
+  check(await row("Mainframe COBOL").locator(".depth-rate.unrated").count() === 1, "added skill starts unrated with a slider");
+  check(await p.evaluate(() => document.activeElement && document.activeElement.closest(".other-skills") !== null), "add box keeps focus for the next skill");
+  await pick("Mainframe COBOL", "depth", "Hands-on");
+  await pick("Mainframe COBOL", "last", "Now");
+  check(await row("Mainframe COBOL").locator(".depth-field.wide textarea").isVisible(), "added skill gets the context box once rated");
+  await row("Mainframe COBOL").locator(".depth-field.wide textarea").fill("Maintained batch billing jobs for a bank");
+  check(await row("Mainframe COBOL").locator('.dive [data-qid="details"]').count() === 0, "added skill's deep dive has no duplicate details box");
   const strongBoxes = p.locator(".depth-row.strong .depth-field.wide textarea");
   for (let i = 0; i < await strongBoxes.count(); i++) {
     if (!(await strongBoxes.nth(i).inputValue())) await strongBoxes.nth(i).fill("Specific example " + (i + 1));
@@ -185,7 +210,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const arch = p.locator(".fit-row", { hasText: "Cloud Architect" });
   await arch.locator("button", { hasText: "Explore" }).click();
   check(await p.locator("h2").innerText() === "Skills & Deep Dive", "Explore jumps to the Skills step");
-  check(await p.locator(".role-block").count() === 3, "explored role added to the skills step");
+  check(await p.locator(".role-block:not(.other-skills)").count() === 3, "explored role added to the skills step");
   await pick("Cloud Migration & Modernization", "depth", "Hands-on");
   await pick("Cloud Migration & Modernization", "last", String(Y - 1));
   await step(5);
@@ -193,24 +218,6 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   await p.locator(".fit-row", { hasText: "DevOps / SRE" }).locator(".chip", { hasText: "Also fits" }).click();
   check(await p.evaluate(() => state.fit.primary) === "tech:backend_engineer", "primary role saved");
 
-  /* 1–5 fit rating: the slider starts at the suggestion, the recruiter sets their own */
-  const fitRow = name => p.locator(".fit-row", { has: p.locator(".fit-role", { hasText: name }) });
-  const beSuggested = await p.evaluate(() => suggestedRating(roleFit("tech:backend_engineer").fit));
-  check(beSuggested >= 1 && beSuggested <= 5 && await fitRow("Software Engineer (Backend)").locator(".fit-slider").inputValue() === String(beSuggested),
-    "slider starts at the suggested 1–5 rating (" + beSuggested + ")");
-  check((await fitRow("Software Engineer (Backend)").locator(".fit-word").innerText()).includes("suggested"), "an untouched rating is marked suggested");
-  check(await fitRow("Software Engineer (Backend)").locator(".link-btn").isHidden(), "no reset until the recruiter rates");
-  check(await p.locator(".fit-pct, .fit-bar").count() === 0, "percentages replaced by the 1–5 rating");
-  await fitRow("DevOps / SRE").locator(".fit-slider").fill("4");
-  check(await p.evaluate(() => state.fit.ratings["tech:devops_sre"]) === 4, "slider saves the recruiter's rating");
-  check((await fitRow("DevOps / SRE").locator(".fit-rate").innerText()).includes("Good fit") &&
-        await fitRow("DevOps / SRE").locator(".fit-rate.set").count() === 1, "slider label updates in place");
-  await fitRow("Software Engineer (Backend)").locator(".fit-slider").fill("5");
-  await fitRow("Full-Stack Developer").locator(".fit-slider").fill("2");
-  await fitRow("Full-Stack Developer").locator(".link-btn").click();
-  check(await p.evaluate(() => state.fit.ratings["tech:fullstack_developer"]) === undefined &&
-        await fitRow("Full-Stack Developer").locator(".fit-slider").inputValue() === String(await p.evaluate(() => suggestedRating(roleFit("tech:fullstack_developer").fit))),
-    "Use suggested clears the recruiter's rating");
   check((await p.locator(".question", { hasText: "Level to place them at" }).innerText()).includes("Suggested"), "level suggestion shown");
   await p.locator(".seg", { hasText: /^Senior$/ }).click();
   await p.locator(".question", { hasText: "Why this role" }).locator("textarea").fill("Owns backend services end to end; cloud is recent and hands-on.");
@@ -229,7 +236,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   check(await row("Month-End Close").locator(".depth-flags").count() === 0, "slow skill not stale at 4 years");
   await row("Month-End Close").locator(".depth-last select").selectOption(String(Y - 5));
   check((await row("Month-End Close").locator(".depth-flags").innerText()).includes("Last did this in " + (Y - 5)), "slow skill stale at 5 years");
-  await pick("Month-End Close", "depth", "Owned");   /* clear it again */
+  await row("Month-End Close").locator(".link-btn", { hasText: "Clear" }).click();   /* unrate it again */
   await step(1);
   await p.click('.role-card:has-text("Controller")');
 
@@ -271,17 +278,19 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const summary = await p.locator(".summary").innerText();
   const expect = [
     ["Jordan Rivera — Software Engineer (Backend)", "title line"],
-    ["Software Engineer (Backend) — 5/5 Strong fit", "primary role with its 1–5 rating"],
-    ["DevOps / SRE 4/5 Good fit [", "recruiter's fit rating in the write-up"],
-    ["(suggested)", "untouched ratings marked suggested in the write-up"],
+    ["Software Engineer (Backend)", "primary role"],
+    ["Top fits", "computed fit ranking"],
+    ["Mainframe COBOL", "added skill in the write-up"],
+    ["3/5 Hands-on · hands-on now", "added skill rated on the 1–5 scale"],
+    ["Experience: Maintained batch billing jobs for a bank", "added skill's context in the write-up"],
     ["Strong backend owner, recent cloud work.", "recruiter summary"],
     ["Wants to own a platform end to end", "why they're looking"],
     ["ideal $80–$95/hr · bottom end $75/hr", "hourly pay line"],
     ["ideal $165,000–$185,000/yr · bottom end $155,000/yr", "salary pay line"],
     ["Rivera Consulting LLC", "C2C company"],
-    ["Owned · 6–9 yrs · hands-on now", "depth detail"],
+    ["4/5 Owned · 6–9 yrs · hands-on now", "depth detail with its 1–5 rating"],
     ["Experience: Built the payments ledger API in Go and Java", "experience details on the depth line"],
-    ["None — asked, no real experience", "None exported as a gap"],
+    ["1/5 None — asked, no real experience", "None exported as a gap"],
     ["Back-End Languages & Frameworks (Owned)", "deep-dive capture section"],
     ["Senior Software Engineer — Acme Payments — 2021 – present", "position line"],
     ["Interview availability · Day 1", "availability"],
@@ -313,7 +322,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   /* ---- persistence and reset ---- */
   await p.evaluate(() => flushSave());
   await p.reload();
-  check(await p.evaluate(() => state.fit.primary === "tech:backend_engineer" && state.skills.backend_languages.depth === "owned" && state.common.pay.hourly.floor === "75" && state.fit.ratings["tech:devops_sre"] === 4), "record survives a reload");
+  check(await p.evaluate(() => state.fit.primary === "tech:backend_engineer" && state.skills.backend_languages.depth === "owned" && state.common.pay.hourly.floor === "75"), "record survives a reload");
   check(await p.evaluate(() => !!localStorage.getItem("rh-interview-v2")), "saved under an rh-interview-* key");
 
   /* ---- an interview saved under the old 10-step layout still loads ---- */
@@ -328,7 +337,8 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         market: { applications: [{ company: "Initech", via_firm: "Yes", firm: "Old Firm" }], references: [{ name: "Old Ref" }] },
         next: { counteroffer: "Low", samples: "old.dev", summary: "Old summary", next_steps: "Old next" } },
       skills: { backend_languages: { depth: "owned", last: "current" } },
-      dives: { backend_languages: { proof_point: "Old proof", language: ["Go"] } },
+      dives: { backend_languages: { proof_point: "Old proof", language: ["Go"] }, old_custom: { details: "Old custom detail", tools: "JCL" } },
+      customSkills: [{ id: "old_custom", label: "Old Custom" }],
       fit: {}, notes: { live: "" } } };
     localStorage.setItem("rh-interview-v2", JSON.stringify(store));
   });
@@ -341,10 +351,13 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   check(!("market" in mig.c) && !("why_looking" in mig.c.wants) && !("counteroffer" in mig.c.next), "nothing left behind in old sections");
   check(mig.live.includes("Earliest start / notice period: 2 weeks from offer") && !("earliest_start" in mig.c.pay), "a retired question's answer is kept in the live notes");
   check(mig.sk.details === "Old proof" && !("proof_point" in mig.dv) && mig.dv.language[0] === "Go", "old proof point becomes the skill's experience details");
+  check(await p.evaluate(() => state.skills.old_custom.details === "Old custom detail" && !("details" in state.dives.old_custom) && state.dives.old_custom.tools === "JCL"),
+    "an added skill's old details answer becomes its experience details");
 
   /* ---- every role renders its skills (with deep dives) and fit ---- */
   const allOk = await p.evaluate(() => {
     const bad = [];
+    state.customSkills = [];   /* count only each role's own skills */
     allRoleKeys().forEach(key => {
       state.shortlist = [key];
       roleByKey(key).role.skills.forEach(id => { skillState(id); state.skills[id].depth = "owned"; state.skills[id].last = "current"; });
