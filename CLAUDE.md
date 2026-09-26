@@ -127,6 +127,7 @@ Each skill records, in `state.skills[skillId]`:
 | `last` | `"current"` / a year number / `"earlier"` | last hands-on. **Stored as an absolute year**, never "N years ago"; `"current"` is anchored to `state.interviewDate`; `"earlier"` = year not pinned down yet |
 | `evidence` | `example` / `general` / `claimed` | walked me through it / described generally / résumé only |
 | `interest` | `more` / `avoid` | wants more of it / wants to avoid it |
+| `details` | free text | what they actually did with it, in their words. The box appears once a skill is rated Exposure or above and is exported after the rating line |
 
 The depth test shown to recruiters: *could they deliver it tomorrow with nobody
 helping?* Definitions live in `DEPTH_LEVELS` in `app.js`.

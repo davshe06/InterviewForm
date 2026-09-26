@@ -87,6 +87,12 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   await years("Back-End Languages & Frameworks", "6–9");
   await pick("Back-End Languages & Frameworks", "last", "Now");
   await pick("Back-End Languages & Frameworks", "evidence", "Walked me through it");
+  const expBox = row("Back-End Languages & Frameworks").locator(".depth-field.wide textarea");
+  check(await expBox.isVisible(), "experience box shown once a skill is rated");
+  await expBox.click();
+  await p.keyboard.type("Built the payments ledger API in Go and Java");
+  check(await expBox.inputValue() === "Built the payments ledger API in Go and Java", "typing in the experience box keeps focus");
+  check(await p.evaluate(() => state.skills.backend_languages.details) === "Built the payments ledger API in Go and Java", "experience details saved");
   await pick("System Design & Architecture", "depth", "Led");
   await pick("System Design & Architecture", "last", "Now");
   await pick("Cloud Platforms", "depth", "Owned");
@@ -97,6 +103,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   await pick("Databases & Data Access", "depth", "Hands-on");
   await pick("Databases & Data Access", "last", "Now");
   await pick("Streaming & Messaging", "depth", "None");
+  check(await row("Streaming & Messaging").locator("textarea").count() === 0, "no experience box for None");
   await pick("Infrastructure as Code", "depth", "Hands-on");
   await pick("Infrastructure as Code", "last", "Now");
   await pick("Containers & Kubernetes", "depth", "Exposure");
@@ -233,6 +240,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     ["ideal $165,000–$185,000/yr · bottom end $155,000/yr", "salary pay line"],
     ["Rivera Consulting LLC", "C2C company"],
     ["Owned · 6–9 yrs · hands-on now", "depth detail"],
+    ["Experience: Built the payments ledger API in Go and Java", "experience details on the depth line"],
     ["None — asked, no real experience", "None exported as a gap"],
     ["Rewrote the ledger service", "proof point"],
     ["Senior Software Engineer — Acme Payments — 2021 – present", "position line"],
@@ -244,12 +252,12 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   ];
   expect.forEach(([s, what]) => check(summary.includes(s), "on-screen summary: " + what));
   const md = await p.evaluate(() => summaryMarkdown());
-  check(md.includes("## Role Fit") && md.includes("## Experience Depth") && md.includes("[linkedin.com/in/jordanrivera](https://linkedin.com/in/jordanrivera)"), "markdown export");
+  check(md.includes("## Role Fit") && md.includes("## Experience Depth") && md.includes("Experience: Built the payments ledger") && md.includes("[linkedin.com/in/jordanrivera](https://linkedin.com/in/jordanrivera)"), "markdown export");
   const [dl] = await Promise.all([p.waitForEvent("download"), p.click('button:has-text("Word")')]);
   const docx = path.join(OUT, "out.docx");
   await dl.saveAs(docx);
   const xml = execSync(`python3 -c "import zipfile,sys;print(zipfile.ZipFile(sys.argv[1]).read('word/document.xml').decode())" ${docx}`).toString();
-  check(xml.includes("Role Fit") && xml.includes("Rewrote the ledger service") && xml.includes("Rivera Consulting LLC"), "Word export");
+  check(xml.includes("Role Fit") && xml.includes("Rewrote the ledger service") && xml.includes("Rivera Consulting LLC") && xml.includes("Experience: Built the payments ledger"), "Word export");
   check(xml.includes("Candidate Interview: Jordan Rivera") && !xml.includes("Job Order") && !xml.includes("Intake completed"), "Word export title");
   const [pop] = await Promise.all([p.waitForEvent("popup"), p.evaluate(() => printSummary())]);
   await pop.waitForLoadState();

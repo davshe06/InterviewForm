@@ -53,7 +53,7 @@ function blankInterview() {
   return {
     shortlist: [],
     common: { candidate: {}, history: {}, wants: {}, pay: {}, market: {}, next: {} },
-    skills: {},          /* skill id → { depth, years, last, evidence, interest } */
+    skills: {},          /* skill id → { depth, years, last, evidence, interest, details } */
     dives: {},           /* skill id → deep-dive answers, incl. proof_point */
     customSkills: [],    /* recruiter-added skills: { id, label } */
     tools: {},           /* tool category key → chips */
@@ -1040,6 +1040,21 @@ function drawDepthRow(row, entry, onChange) {
     segControl("evidence__" + id, EVIDENCE_OPTIONS, a.evidence, v => set("evidence", v))));
   detail.appendChild(depthField("Interest",
     segControl("interest__" + id, INTEREST_OPTIONS, a.interest, v => set("interest", v))));
+
+  /* Free-text account of what they actually did. Saved on input without a
+     redraw, so typing never loses focus; kept if the rating later drops to
+     None, but only shown and exported while rated Exposure or above. */
+  const notes = el("textarea");
+  notes.rows = 2;
+  notes.placeholder = "What they did with it — where, at what scale, what they owned, in their words";
+  notes.value = a.details || "";
+  notes.addEventListener("input", () => {
+    if (notes.value.trim()) a.details = notes.value; else delete a.details;
+    saveState();
+  });
+  const notesField = depthField("Their experience", notes);
+  notesField.classList.add("wide");
+  detail.appendChild(notesField);
   row.appendChild(detail);
 
   const flags = depthFlags(a, id);
@@ -1131,6 +1146,8 @@ function depthDetail(a, id) {
   if (it) parts.push(it.label.toLowerCase());
   let out = parts.join(" · ");
   if (isStale(a, id)) out += " — ⚠ not hands-on in " + yearsSinceHandsOn(a) + " years";
+  const details = (a.details || "").trim().replace(/\s*\n\s*/g, " ");
+  if (details) out += ". Experience: " + details;
   return out;
 }
 
