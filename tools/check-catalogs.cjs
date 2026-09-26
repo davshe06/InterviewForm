@@ -29,7 +29,18 @@ function checkQuestions(where, questions, reserved) {
     if (!TYPES.includes(q.type)) bad(where + "/" + q.id + ": unknown type " + q.type);
     if (NEEDS_OPTIONS.includes(q.type) && !q.optionsFrom && !(q.options && q.options.length))
       bad(where + "/" + q.id + ": " + q.type + " needs options or optionsFrom");
-    if (q.type === "group" && !(q.fields && q.fields.length)) bad(where + "/" + q.id + ": group needs fields");
+    if (q.type === "group") {
+      if (!(q.fields && q.fields.length)) bad(where + "/" + q.id + ": group needs fields");
+      const fids = new Set();
+      (q.fields || []).forEach(f => {
+        if (!f.id || !f.label) bad(where + "/" + q.id + ": group field missing id or label");
+        if (fids.has(f.id)) bad(where + "/" + q.id + ": duplicate group field " + f.id);
+        fids.add(f.id);
+        if (f.type && f.type !== "radio") bad(where + "/" + q.id + "/" + f.id + ": group fields are text, long, or radio");
+        if (f.type === "radio" && !(f.options && f.options.length)) bad(where + "/" + q.id + "/" + f.id + ": radio needs options");
+        if (f.showIf && typeof f.showIf !== "function") bad(where + "/" + q.id + "/" + f.id + ": showIf must be a function");
+      });
+    }
   });
 }
 

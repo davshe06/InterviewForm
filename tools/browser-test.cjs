@@ -67,6 +67,10 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   await pos.locator("input").nth(0).fill("Senior Software Engineer");
   await pos.locator("input").nth(1).fill("Acme Payments");
   await pos.locator("input").nth(2).fill("2021 – present");
+  await pos.locator('[data-fid="manager_name"] input').fill("Priya Shah");
+  await pos.locator('[data-fid="manager_title"] input').fill("VP Engineering");
+  await fill("reports_to", "CTO");
+  await fill("reports_to_name", "Sam Okafor");
   await pos.locator("textarea").nth(0).fill("Owned the ledger service");
   await p.locator('[data-qid="direct_reports"] select').selectOption("1–3");
   await chip("teammates", "DevOps / SRE");
@@ -83,6 +87,12 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   await years("Back-End Languages & Frameworks", "6–9");
   await pick("Back-End Languages & Frameworks", "last", "Now");
   await pick("Back-End Languages & Frameworks", "evidence", "Walked me through it");
+  const expBox = row("Back-End Languages & Frameworks").locator(".depth-field.wide textarea");
+  check(await expBox.isVisible(), "experience box shown once a skill is rated");
+  await expBox.click();
+  await p.keyboard.type("Built the payments ledger API in Go and Java");
+  check(await expBox.inputValue() === "Built the payments ledger API in Go and Java", "typing in the experience box keeps focus");
+  check(await p.evaluate(() => state.skills.backend_languages.details) === "Built the payments ledger API in Go and Java", "experience details saved");
   await pick("System Design & Architecture", "depth", "Led");
   await pick("System Design & Architecture", "last", "Now");
   await pick("Cloud Platforms", "depth", "Owned");
@@ -93,6 +103,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   await pick("Databases & Data Access", "depth", "Hands-on");
   await pick("Databases & Data Access", "last", "Now");
   await pick("Streaming & Messaging", "depth", "None");
+  check(await row("Streaming & Messaging").locator("textarea").count() === 0, "no experience box for None");
   await pick("Infrastructure as Code", "depth", "Hands-on");
   await pick("Infrastructure as Code", "last", "Now");
   await pick("Containers & Kubernetes", "depth", "Exposure");
@@ -172,7 +183,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   await step(1);
   await p.click('.role-card:has-text("Controller")');
 
-  /* ---- steps 6–8 ---- */
+  /* ---- steps 6–9 ---- */
   await step(6);
   await p.locator('[data-qid="top3"] input').nth(0).fill("Own a platform");
   await chip("engagement", "Contract-to-hire");
@@ -190,6 +201,27 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const salary = p.locator('[data-qid="salary"] input');
   await salary.nth(0).fill("165000"); await salary.nth(1).fill("185000"); await salary.nth(2).fill("155000");
   await step(8);
+  check(await p.locator("h2").innerText() === "References & Other Applications", "references step after pay");
+  const ref = p.locator('[data-qid="references"] .group-item').first();
+  await ref.locator('[data-fid="name"] input').fill("Priya Shah");
+  await ref.locator('[data-fid="relationship"] input').fill("Former manager");
+  await ref.locator('[data-fid="company"] input').fill("Acme Payments");
+  await ref.locator('[data-fid="contact_ok"] .seg', { hasText: "Not yet" }).click();
+  check((await p.locator(".tips").innerText()).includes("aren't cleared to contact yet"), "reference not-yet prompt");
+  const app1 = p.locator('[data-qid="applications"] .group-item').first();
+  await app1.locator('[data-fid="company"] input').fill("Globex");
+  await app1.locator('[data-fid="role"] input').fill("Staff Engineer");
+  await app1.locator('[data-fid="stage"] .seg', { hasText: "Final round" }).click();
+  check(await app1.locator('[data-fid="firm"]').isHidden(), "recruiting firm hidden until 'through a firm' is Yes");
+  await app1.locator('[data-fid="via_firm"] .seg', { hasText: /^No$/ }).click();
+  check(await app1.locator('[data-fid="firm"]').isHidden(), "recruiting firm hidden for a direct application");
+  await app1.locator('[data-fid="via_firm"] .seg', { hasText: /^Yes$/ }).click();
+  check(await app1.locator('[data-fid="firm"]').isVisible(), "recruiting firm shown when applied through a firm");
+  await app1.locator('[data-fid="firm"] input').fill("TEKsystems");
+  const marketTips = await p.locator(".tips").innerText();
+  check(marketTips.includes("working with another recruiting firm"), "other-firm prompt");
+  check(marketTips.includes("final round or offer"), "competing-offer prompt");
+  await step(9);
   await p.locator(".daywin-block input[type=date]").first().fill(Y + "-10-06");
   await p.locator(".daywin-block input[type=time]").nth(0).fill("09:00");
   await p.locator(".daywin-block input[type=time]").nth(1).fill("11:00");
@@ -197,7 +229,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   check((await p.locator(".tips").innerText()).includes("If your company matched"), "counteroffer prompt");
 
   /* ---- review + every export ---- */
-  await step(9);
+  await step(10);
   const misses = await p.locator(".check.miss").allInnerTexts();
   check(misses.length === 0, "checklist complete" + (misses.length ? ": " + misses.join(" | ") : ""));
   const summary = await p.locator(".summary").innerText();
@@ -208,19 +240,24 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     ["ideal $165,000–$185,000/yr · bottom end $155,000/yr", "salary pay line"],
     ["Rivera Consulting LLC", "C2C company"],
     ["Owned · 6–9 yrs · hands-on now", "depth detail"],
+    ["Experience: Built the payments ledger API in Go and Java", "experience details on the depth line"],
     ["None — asked, no real experience", "None exported as a gap"],
     ["Rewrote the ledger service", "proof point"],
     ["Senior Software Engineer — Acme Payments — 2021 – present", "position line"],
-    ["Interview availability · Day 1", "availability"]
+    ["Interview availability · Day 1", "availability"],
+    ["Manager's name: Priya Shah", "manager name on a position"],
+    ["Sam Okafor", "most senior person's name"],
+    ["Priya Shah — Former manager — Acme Payments", "reference line"],
+    ["Globex — Staff Engineer. Stage: Final round. Through a recruiting firm: Yes. Recruiting firm: TEKsystems", "application with recruiting firm"]
   ];
   expect.forEach(([s, what]) => check(summary.includes(s), "on-screen summary: " + what));
   const md = await p.evaluate(() => summaryMarkdown());
-  check(md.includes("## Role Fit") && md.includes("## Experience Depth") && md.includes("[linkedin.com/in/jordanrivera](https://linkedin.com/in/jordanrivera)"), "markdown export");
+  check(md.includes("## Role Fit") && md.includes("## Experience Depth") && md.includes("Experience: Built the payments ledger") && md.includes("[linkedin.com/in/jordanrivera](https://linkedin.com/in/jordanrivera)"), "markdown export");
   const [dl] = await Promise.all([p.waitForEvent("download"), p.click('button:has-text("Word")')]);
   const docx = path.join(OUT, "out.docx");
   await dl.saveAs(docx);
   const xml = execSync(`python3 -c "import zipfile,sys;print(zipfile.ZipFile(sys.argv[1]).read('word/document.xml').decode())" ${docx}`).toString();
-  check(xml.includes("Role Fit") && xml.includes("Rewrote the ledger service") && xml.includes("Rivera Consulting LLC"), "Word export");
+  check(xml.includes("Role Fit") && xml.includes("Rewrote the ledger service") && xml.includes("Rivera Consulting LLC") && xml.includes("Experience: Built the payments ledger"), "Word export");
   check(xml.includes("Candidate Interview: Jordan Rivera") && !xml.includes("Job Order") && !xml.includes("Intake completed"), "Word export title");
   const [pop] = await Promise.all([p.waitForEvent("popup"), p.evaluate(() => printSummary())]);
   await pop.waitForLoadState();
@@ -365,7 +402,7 @@ async function updateTests(browser) {
   server.closeAllConnections && server.closeAllConnections();
   await ctx.setOffline(true);
   await p.reload().catch(() => {});
-  check(await p.locator(".nav-step").count() === 9, "form still opens offline");
+  check(await p.locator(".nav-step").count() === 10, "form still opens offline");
 
   check(errors.length === 0, "no page errors while updating" + (errors.length ? ": " + errors.join(" | ") : ""));
   await ctx.close();

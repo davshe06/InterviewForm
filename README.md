@@ -15,7 +15,7 @@ and flow have been rebuilt for interviewing candidates.
 
 1. **Candidate & Roles** — contact details, work authorization, and the 1–3
    roles the résumé points to (from either PTS or TTS).
-2. **Career History** — recent positions, what they owned, why they left.
+2. **Career History** — recent positions (with the manager they reported to), what they owned, why they left.
 3. **Experience Depth** — every skill of the roles being explored, rated
    None / Exposure / Hands-on / Owned / Led, with years, last hands-on year,
    evidence, and interest.
@@ -24,7 +24,9 @@ and flow have been rebuilt for interviewing candidates.
 5. **Role Fit** — every role scored against the ratings, a suggested level,
    and the recruiter's choice of primary role.
 6. **What They Want**, 7. **Pay & Logistics** (W2 / IC / C2C, hourly and
-   salary ranges), 8. **Screening & Next Steps**, 9. **Review & Export**.
+   salary ranges), 8. **References & Applications** (references, other roles
+   they've applied to, and which recruiting firm if any), 9. **Screening &
+   Next Steps**, 10. **Review & Export**.
 
 ## Running it
 
@@ -43,7 +45,7 @@ GitHub Pages: Settings → Pages → Deploy from a branch → `main` / `/ (root)
 | `index.html` | Page shell; loads skills, then roles, then the interview steps, then the engine |
 | `skills-*.js` | The skill registry — 185 skills, each with interview questions, answer signals, and capture fields |
 | `roles-*.js` | Role catalogs — Management Resources (PTS, 14), Tech (TTS, 13), Digital & Marketing (TTS, 9) |
-| `interview.js` | Role-independent steps: candidate, history, wants, pay, screening |
+| `interview.js` | Role-independent steps: candidate, history, wants, pay, references & applications, screening |
 | `app.js` | Generic render engine — steps, state, depth model, role fit, exports, theming |
 | `styles.css` | All styling, including light/dark and per-business accents |
 | `docx.js` | Dependency-free Word (.docx) generator |

@@ -4,8 +4,11 @@
    catalogs.
 
    Question types: text, textarea, number, select, radio, chips (always allows
-   "+ Other…"), textlist (N numbered boxes), group (N repeated mini-forms, e.g.
-   positions), payrange (ideal low–high + bottom end).
+   "+ Other…"), textlist (N numbered boxes), group (N repeated mini-forms —
+   positions, references, applications), payrange (ideal low–high + bottom end).
+   Group fields: { id, label, placeholder, head?, long?, type?: "radio",
+   options?, showIf?(item) } — head fields lead the exported line ("Title —
+   Company — Dates"); the rest export as "Label: value".
    Extra keys:
      optionsFrom — chips options pulled from the shortlisted roles
                    ("certs" | "environments" | "metrics" | "teammates")
@@ -68,17 +71,20 @@ window.INTERVIEW = {
       subtitle: "Walk the résumé, most recent first. Get what they owned, not what the team did.",
       coach: "For each role ask: “What were you hired to do, what did you own, and why did you leave?” Short stints and gaps get a direct, friendly question.",
       questions: [
-        { id: "positions", type: "group", count: 3, label: "Recent positions",
+        { id: "positions", type: "group", count: 3, label: "Recent positions", itemLabel: "Position",
           fields: [
-            { id: "title", label: "Title", placeholder: "Title" },
-            { id: "company", label: "Company", placeholder: "Company" },
-            { id: "dates", label: "Dates", placeholder: "e.g., 2021 – present" },
+            { id: "title", label: "Title", placeholder: "Title", head: true },
+            { id: "company", label: "Company", placeholder: "Company", head: true },
+            { id: "dates", label: "Dates", placeholder: "e.g., 2021 – present", head: true },
+            { id: "manager_name", label: "Manager's name", placeholder: "Who they reported to" },
+            { id: "manager_title", label: "Manager's title", placeholder: "e.g., Controller" },
             { id: "owned", label: "What they owned", placeholder: "Scope, team, results", long: true },
             { id: "left", label: "Why they left / are leaving", placeholder: "Reason", long: true }
           ] },
         { id: "gaps", type: "text", label: "Gaps or short stints — and the reason", placeholder: "e.g., 2020 gap — caregiving" },
         { id: "operating_level", type: "radio", label: "Where do they operate today?", options: OPERATING },
         { id: "reports_to", type: "text", label: "Most senior person they report to", placeholder: "Title (e.g., CFO, VP Engineering)" },
+        { id: "reports_to_name", type: "text", label: "That person's name", placeholder: "Full name" },
         { id: "team_size", type: "text", label: "Size of their team", placeholder: "e.g., 8-person accounting team" },
         { id: "direct_reports", type: "select", label: "Direct reports", options: ["None", "1–3", "4–8", "9–15", "16+"] },
         { id: "teammates", type: "chips", label: "Who else was on their team?", optionsFrom: "teammates",
@@ -174,10 +180,43 @@ window.INTERVIEW = {
       ]
     },
 
+    market: {
+      title: "References & Other Applications",
+      subtitle: "Who can vouch for them, and where else they're in play — including through other recruiting firms.",
+      coach: "Ask: “Where else have you applied or interviewed, and did any of those come through a recruiter?” It sets your timeline and keeps you from submitting them somewhere another firm already has.",
+      questions: [
+        { id: "references", type: "group", count: 3, label: "References", itemLabel: "Reference",
+          fields: [
+            { id: "name", label: "Name", placeholder: "Full name", head: true },
+            { id: "relationship", label: "Relationship", placeholder: "e.g., former manager", head: true },
+            { id: "company", label: "Company", placeholder: "Where they worked together", head: true },
+            { id: "phone", label: "Phone", placeholder: "(555) 555-5555" },
+            { id: "email", label: "Email", placeholder: "name@example.com" },
+            { id: "contact_ok", label: "OK to contact now?", type: "radio", options: ["Yes", "Not yet"] }
+          ] },
+        { id: "applications", type: "group", count: 4, label: "Other roles they've applied to", itemLabel: "Application",
+          fields: [
+            { id: "company", label: "Company", placeholder: "Company", head: true },
+            { id: "role", label: "Role", placeholder: "Title", head: true },
+            { id: "stage", label: "Stage", type: "radio", options: ["Applied", "Interviewing", "Final round", "Offer"] },
+            { id: "via_firm", label: "Through a recruiting firm?", type: "radio", options: ["Yes", "No"] },
+            { id: "firm", label: "Recruiting firm", placeholder: "Firm name", showIf: item => item.via_firm === "Yes" }
+          ] }
+      ],
+      tips: [
+        { when: a => (a.applications || []).some(x => x && x.via_firm === "Yes"),
+          text: "They're working with another recruiting firm — confirm which companies that firm has already submitted them to, so they aren't submitted to the same client twice." },
+        { when: a => (a.applications || []).some(x => x && (x.stage === "Final round" || x.stage === "Offer")),
+          text: "A final round or offer is in play — get the date they have to decide, and move faster than it." },
+        { when: a => (a.references || []).some(r => r && r.contact_ok === "Not yet"),
+          text: "Some references aren't cleared to contact yet — agree on when you can reach out." }
+      ]
+    },
+
     next: {
       title: "Screening & Next Steps",
-      subtitle: "Willingness for the usual screening steps, where they are in the market, and what happens next.",
-      coach: "Before you hang up: lock their interview availability and ask what else they have in play.",
+      subtitle: "Willingness for the usual screening steps, and what happens next.",
+      coach: "Before you hang up: lock their interview availability and agree on next steps.",
       availability: true,
       questions: [
         { id: "working_interview", type: "radio", label: "Open to a working interview?", options: ["Yes", "Maybe", "No"] },
@@ -188,8 +227,6 @@ window.INTERVIEW = {
           options: ["Yes", "Has questions", "No"] },
         { id: "drug_screen", type: "radio", label: "Willing to complete a drug screen?", options: ["Yes", "Has questions", "No"] },
         { id: "computer", type: "radio", label: "Has a suitable computer if the assignment needs one?", options: ["Yes", "No"] },
-        { id: "other_interviews", type: "textarea", label: "Other interviews or offers in play",
-          placeholder: "Companies, stage, timelines" },
         { id: "counteroffer", type: "radio", label: "Counteroffer risk", options: ["Low", "Medium", "High"] },
         { id: "concerns", type: "textarea", label: "Concerns / red flags", placeholder: "Anything that gave you pause" },
         { id: "summary", type: "textarea", label: "Recruiter summary", placeholder: "Your read on this candidate in 3–4 sentences" },
@@ -199,9 +236,7 @@ window.INTERVIEW = {
         { when: a => a.counteroffer === "High",
           text: "High counteroffer risk — ask now: “If your company matched, would you stay?” and note the answer." },
         { when: a => a.background_check === "Has questions" || a.drug_screen === "Has questions",
-          text: "They have questions about screening — explain the process, and bring in your manager if anything needs a decision." },
-        { when: a => (a.other_interviews || "").trim().length > 0,
-          text: "Other processes in play — get the stages and dates so you can move faster than they do." }
+          text: "They have questions about screening — explain the process, and bring in your manager if anything needs a decision." }
       ]
     }
   }
