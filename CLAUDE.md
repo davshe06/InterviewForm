@@ -115,8 +115,10 @@ groups the `interview.js` sections into five steps:
    title and employer if it hasn't been touched.
 3. **Skills & Deep Dive.** Each skill is rated in one pass. Once it's rated
    Exposure or above, its row shows years, recency, evidence, interest, their
-   experience, and the skill's deep dive (ask, signals, capture). Tools and AI
-   use come after the skills.
+   experience, and the skill's deep dive (ask, signals, capture). An
+   always-visible **Other skills** block adds skills no explored role lists.
+   Each added skill gets the same slider, context box, and a general deep dive
+   (`customSkillDef()`). Tools and AI use come after the skills.
 4. **Wants, Pay & Close** (`wants`, `pay`, `next`). `next` holds screening
    willingness, references, interview availability, and agreed next steps.
 5. **Role Fit & Wrap-up**, marked "After the call" in the nav. It holds Role
@@ -159,6 +161,15 @@ Each skill records, in `state.skills[skillId]`:
 | `interest` | `more` / `avoid` | wants more of it / wants to avoid it |
 | `details` | free text | the specific example behind the rating, in their words. The box appears once a skill is rated Exposure or above and is exported after the rating line. It replaces the old per-skill proof point |
 
+**Recruiters rate depth on a 1–5 slider**, one step per level:
+1 None · 2 Exposure · 3 Hands-on · 4 Owned · 5 Led. The stored value is still
+the `depth` id, so fit, staleness, and exports are unchanged. The write-up
+shows "4/5 Owned". A skill starts unrated: the slider is dimmed and reads
+"Not rated". The first click, drag, or level name rates it, and "Clear"
+unrates it. The slider sits in the row head, which is built once. Only the
+row body (details, context box, deep dive) redraws, so the slider can be
+dragged.
+
 The depth test shown to recruiters: *could they deliver it tomorrow with nobody
 helping?* Definitions live in `DEPTH_LEVELS` in `app.js`.
 
@@ -179,14 +190,11 @@ Hands-on .6, Owned .85, Led 1; stale ×.6; unrated = 0 (coverage matters); a
 skill used by 5+ roles weighs half. With 3+ tools recorded, tool overlap is
 20% — but only for roles whose skills already score above zero (tools adjust a
 score, never create one). Roles show only with a non-zero fit or when explored.
-**Fit is rated 1–5** (Poor, Weak, Possible, Good, Strong fit) with a slider
-on each role row. The computed score only *suggests* a rating:
-`suggestedRating()` maps 0% → 1 and 100% → 5. The slider starts there. When the
-recruiter drags it, their rating is saved in `state.fit.ratings[roleKey]`,
-and "Use suggested" clears it. The write-up and the leading-fit card show
-`fitRatingText()` (e.g. "4/5 Good fit"), with "(suggested)" on any role the
-recruiter hasn't rated. Rows stay ordered by the computed score so they don't
-jump while a slider moves. Percentages aren't shown anywhere.
+Role Fit is **computed, not rated**. It shows a percentage bar per role. The
+recruiter rates *skills* (1–5 sliders on the Skills step), not roles. A
+per-role 1–5 slider was tried and removed: it conflated rating roles with
+rating the chosen role's skills. Saved `fit.ratings` from that build are
+dropped on load.
 `roleProfile()` gives "Currently / Was marketable as"; `suggestedLevel()`
 suggests seniority from ratings (ignoring None) and direct reports. "Explore"
 adds a role to the shortlist and jumps to the Skills step.

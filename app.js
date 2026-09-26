@@ -58,7 +58,7 @@ function blankInterview() {
     customSkills: [],    /* recruiter-added skills: { id, label } */
     tools: {},           /* tool category key → chips */
     ai: {},
-    fit: { primary: null, also: [], level: null, notes: "", ratings: {} },  /* ratings: role key → recruiter's 1–5 */
+    fit: { primary: null, also: [], level: null, notes: "" },
     notes: { pretext: "", live: "", pretextH: null, liveH: null },
     aiAnalysis: null,
     interviewDate: null
@@ -93,9 +93,10 @@ function loadStore() {
       Object.entries(s.common || {}).forEach(([k, v]) => { if (iv.common[k] && v) iv.common[k] = v; });
       ["skills", "dives", "tools", "ai"].forEach(k => { iv[k] = s[k] || {}; });
       iv.notes = Object.assign(iv.notes, s.notes || {});
-      migrateInterview(iv, s.common || {});
       iv.customSkills = s.customSkills || [];
+      migrateInterview(iv, s.common || {});
       iv.fit = Object.assign(iv.fit, s.fit || {});
+      delete iv.fit.ratings;   /* per-role 1–5 ratings were replaced by 1–5 skill ratings */
       iv.aiAnalysis = s.aiAnalysis || null;
       iv.interviewDate = s.interviewDate || null;
       return base;
@@ -127,11 +128,17 @@ function migrateInterview(iv, savedCommon) {
       }
     });
   });
+  /* the old proof point, and a custom skill's old "What did they do here?",
+     both became the skill's experience details */
   Object.entries(iv.dives).forEach(([id, d]) => {
-    if (!d || !d.proof_point) return;
+    if (!d) return;
+    const old = [d.proof_point, (iv.customSkills || []).some(c => c.id === id) ? d.details : null]
+      .filter(v => typeof v === "string" && v.trim());
+    if (!old.length) return;
     const a = iv.skills[id] || (iv.skills[id] = {});
-    if (!(a.details || "").trim()) a.details = d.proof_point;
+    if (!(a.details || "").trim()) a.details = old.join("\n");
     delete d.proof_point;
+    if ((iv.customSkills || []).some(c => c.id === id)) delete d.details;
   });
 }
 
@@ -278,7 +285,6 @@ function customSkillDef(c) {
     listen: "Specifics: scope, their own decisions, and a measurable result.",
     red: "Only generalities, or the team's work described as their own.",
     capture: [
-      { id: "details", type: "textarea", label: "What did they do here?", placeholder: "Scope, scale, what they owned vs. supported…" },
       { id: "tools", type: "text", label: "Tools / platforms used", placeholder: "Tools, platforms, certifications…" }
     ]
   };
@@ -365,23 +371,6 @@ function roleFit(key) {
   /* tools only adjust a score the skills have earned — never create one */
   const fit = toolScore == null || skillScore === 0 ? skillScore : .8 * skillScore + .2 * toolScore;
   return { key, r, fit, rated, total: r.role.skills.length, profile: roleProfile(r.role) };
-}
-
-/* Fit is rated 1–5. The computed score suggests a rating (0% → 1,
-   100% → 5); the recruiter sets the real one with a slider. Until they
-   move it, the suggestion stands and is marked as such everywhere. */
-const FIT_SCALE = ["Poor fit", "Weak fit", "Possible fit", "Good fit", "Strong fit"];
-
-function suggestedRating(fit) { return Math.min(5, Math.max(1, Math.round(1 + fit * 4))); }
-
-function fitRating(f) {
-  const set = state.fit.ratings[f.key];
-  return set ? { value: set, set: true } : { value: suggestedRating(f.fit), set: false };
-}
-
-function fitRatingText(f) {
-  const r = fitRating(f);
-  return r.value + "/5 " + FIT_SCALE[r.value - 1] + (r.set ? "" : " (suggested)");
 }
 
 function rankedFits() {
@@ -937,14 +926,14 @@ function renderSkillsStep(main, w) {
 
   main.appendChild(el("h2", null, esc(w.title)));
   main.appendChild(el("p", "subtitle",
-    "Rate each skill from what they can walk you through, not what's on the résumé. Leave a skill on — if it never came up. Once rated, the skill's deep dive opens underneath: ask the questions in order, listen for the signals, and record what they actually did."));
+    "Rate each skill 1–5 on the slider from what they can walk you through, not what's on the résumé. Leave a skill unrated if it never came up. Once a skill they have is rated, a box opens for the context behind the rating, with the skill's deep dive underneath."));
 
   const legend = el("div", "depth-legend");
   legend.appendChild(el("div", "depth-legend-test",
     "The test: <strong>could they deliver it tomorrow with nobody helping?</strong>"));
   const dl = el("dl");
-  DEPTH_LEVELS.forEach(d => {
-    dl.appendChild(el("dt", null, esc(d.label)));
+  DEPTH_LEVELS.forEach((d, i) => {
+    dl.appendChild(el("dt", null, (i + 1) + " · " + esc(d.label)));
     dl.appendChild(el("dd", null, esc(d.def)));
   });
   legend.appendChild(dl);
@@ -977,25 +966,19 @@ function renderSkillsStep(main, w) {
     if (list.childNodes.length) main.appendChild(list);
   });
 
+  /* Skills they have that no explored role lists — each gets the same
+     slider, context box, and a general deep dive */
   const custom = skills.filter(s => s.def.custom);
-  if (custom.length) {
-    main.appendChild(el("div", "role-block", "<div class='role-block-title'>➕ Other skills</div>"));
-    const list = el("div", "depth-list");
-    custom.forEach(s => {
-      const row = el("div", "depth-row");
-      list.appendChild(row);
-      drawDepthRow(row, s, onChange);
-    });
-    main.appendChild(list);
-  }
-
-  /* Add a skill they have that isn't listed */
-  const addBox = el("div", "custom-add");
+  const otherHead = el("div", "role-block other-skills");
+  otherHead.appendChild(el("div", "role-block-title", "➕ Other skills"));
+  otherHead.appendChild(el("div", "role-block-coach",
+    "Anything they bring that isn't listed above. Add it by name, then rate it 1–5 and capture the context like any other skill."));
   const addRow = el("div", "custom-add-row");
   const addInput = el("input");
   addInput.type = "text";
   addInput.placeholder = "Add a skill that isn't listed…";
-  const addBtn = el("button", "btn", "+ Add");
+  addInput.setAttribute("aria-label", "Add a skill that isn't listed");
+  const addBtn = el("button", "btn", "+ Add skill");
   const addSkill = () => {
     const v = addInput.value.trim();
     if (!v) return;
@@ -1005,13 +988,24 @@ function renderSkillsStep(main, w) {
     skillState(c.id);
     saveState();
     render();
+    const again = document.querySelector(".other-skills input");   /* ready for the next one */
+    if (again) again.focus();
   };
   addBtn.addEventListener("click", addSkill);
   addInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addSkill(); } });
   addRow.appendChild(addInput);
   addRow.appendChild(addBtn);
-  addBox.appendChild(addRow);
-  main.appendChild(addBox);
+  otherHead.appendChild(addRow);
+  main.appendChild(otherHead);
+  if (custom.length) {
+    const list = el("div", "depth-list");
+    custom.forEach(s => {
+      const row = el("div", "depth-row");
+      list.appendChild(row);
+      drawDepthRow(row, s, onChange);
+    });
+    main.appendChild(list);
+  }
 
   const toolQs = toolQuestions();
   if (toolQs.length) {
@@ -1058,14 +1052,22 @@ function depthField(labelText, control) {
   return f;
 }
 
+/* A skill row: name + 1–5 slider in a head that is built once, and a body
+   (years, recency, evidence, interest, their experience, deep dive) that
+   redraws whenever the rating or a detail changes. Keeping the slider out of
+   the redraw is what lets it be dragged. */
 function drawDepthRow(row, entry, onChange) {
   row.innerHTML = "";
   const id = entry.id, def = entry.def;
   const a = skillState(id);
-  const rank = depthRank(a);
-  row.className = "depth-row" + (rank >= DEPTH_RANK.owned ? " strong" : rank >= 0 ? " rated" : "");
-  const redraw = () => { saveState(); drawDepthRow(row, entry, onChange); onChange(); };
-  const set = (key, v) => { if (v == null) delete a[key]; else a[key] = v; redraw(); };
+  const body = el("div", "depth-body");
+  const redraw = () => {
+    saveState();
+    const rank = depthRank(a);
+    row.className = "depth-row" + (rank >= DEPTH_RANK.owned ? " strong" : rank >= 0 ? " rated" : "");
+    drawDepthBody(body, entry, a, redraw);
+    onChange();
+  };
 
   const head = el("div", "depth-head");
   const nameCell = el("div", "depth-name");
@@ -1084,10 +1086,71 @@ function drawDepthRow(row, entry, onChange) {
   }
   nameCell.appendChild(el("div", "depth-what", esc(def.what)));
   head.appendChild(nameCell);
-  head.appendChild(segControl("depth__" + id,
-    DEPTH_LEVELS.map(d => ({ id: d.id, label: d.label, title: d.def })), a.depth, v => set("depth", v)));
+  head.appendChild(depthSlider(entry, a, redraw));
   row.appendChild(head);
+  row.appendChild(body);
+  const rank = depthRank(a);
+  row.className = "depth-row" + (rank >= DEPTH_RANK.owned ? " strong" : rank >= 0 ? " rated" : "");
+  drawDepthBody(body, entry, a, redraw);
+}
 
+/* 1–5 rating slider; each step is a depth level (1 None … 5 Led). A skill
+   starts unrated (never discussed): the slider is dimmed and the first
+   click, drag, or level name rates it. "Clear" makes it unrated again. */
+function depthSlider(entry, a, onRate) {
+  const wrap = el("div", "depth-rate");
+  const top = el("div", "depth-rate-top");
+  const score = el("span", "depth-score");
+  const word = el("span", "depth-word");
+  const clear = el("button", "link-btn", "Clear");
+  clear.type = "button";
+  top.appendChild(score);
+  top.appendChild(word);
+  top.appendChild(clear);
+  wrap.appendChild(top);
+
+  const slider = el("input", "depth-slider");
+  slider.type = "range";
+  slider.min = "1"; slider.max = "5"; slider.step = "1";
+  slider.setAttribute("aria-label", entry.def.label + " rating, 1 to 5");
+  wrap.appendChild(slider);
+
+  const ticks = el("div", "depth-ticks");
+  DEPTH_LEVELS.forEach((d, i) => {
+    const t = el("button", "depth-tick", esc(d.label));
+    t.type = "button";
+    t.title = (i + 1) + " — " + d.def;
+    t.style.left = (i * 25) + "%";
+    t.style.transform = "translateX(-" + (i * 25) + "%)";
+    t.addEventListener("click", () => rate(i + 1));
+    ticks.appendChild(t);
+  });
+  wrap.appendChild(ticks);
+
+  const paint = () => {
+    const n = depthRank(a) + 1;           /* 0 when unrated */
+    wrap.classList.toggle("unrated", n === 0);
+    slider.value = String(n || 1);
+    slider.setAttribute("aria-valuetext", n ? n + " — " + DEPTH_LEVELS[n - 1].label : "Not rated");
+    score.innerHTML = n ? n + "<small>/5</small>" : "–<small>/5</small>";
+    word.textContent = n ? DEPTH_LEVELS[n - 1].label : "Not rated";
+    clear.hidden = !n;
+    [...ticks.children].forEach((t, i) => t.classList.toggle("on", i === n - 1));
+  };
+  const rate = n => { a.depth = DEPTH_LEVELS[n - 1].id; paint(); onRate(); };
+  slider.addEventListener("input", () => rate(Number(slider.value)));
+  /* clicking an unrated slider where the thumb already sits fires no input */
+  slider.addEventListener("click", () => { if (!a.depth) rate(Number(slider.value)); });
+  clear.addEventListener("click", () => { delete a.depth; paint(); onRate(); });
+  paint();
+  return wrap;
+}
+
+function drawDepthBody(body, entry, a, redraw) {
+  body.innerHTML = "";
+  const id = entry.id;
+  const rank = depthRank(a);
+  const set = (key, v) => { if (v == null) delete a[key]; else a[key] = v; redraw(); };
   if (rank < DEPTH_RANK.exposure) return;
 
   const detail = el("div", "depth-detail");
@@ -1145,16 +1208,16 @@ function drawDepthRow(row, entry, onChange) {
   const notesField = depthField("Their experience", notes);
   notesField.classList.add("wide");
   detail.appendChild(notesField);
-  row.appendChild(detail);
+  body.appendChild(detail);
 
   const flags = depthFlags(a, id);
   if (flags.length) {
     const box = el("div", "tips depth-flags");
     flags.forEach(f => box.appendChild(el("div", "tip" + (f.warn ? " warn" : ""), "💡 " + esc(f.text))));
-    row.appendChild(box);
+    body.appendChild(box);
   }
 
-  row.appendChild(buildDive(entry, a));
+  body.appendChild(buildDive(entry, a));
 }
 
 /* Deep dives open by default for Owned / Led skills. A recruiter's own
@@ -1255,7 +1318,7 @@ function drawDepthSummary(container) {
   if (top && top.fit > 0) {
     const card = el("div", "profile-card");
     card.appendChild(el("div", "profile-kicker", "Leading fit so far"));
-    card.appendChild(el("div", "profile-name", esc(top.r.role.label) + " · " + esc(fitRatingText(top))));
+    card.appendChild(el("div", "profile-name", esc(top.r.role.label) + " · " + Math.round(top.fit * 100) + "%"));
     card.appendChild(el("p", "profile-detail",
       (top.profile ? esc(top.profile.kicker + ": " + top.profile.profile) + ". " : "") +
       "The full ranking across every role is on Role Fit & Wrap-up."));
@@ -1264,8 +1327,10 @@ function drawDepthSummary(container) {
 }
 
 /* Short badge text for a rated skill, e.g. "Owned · 6–9 yrs · Now". */
+function depthScore(a) { return (depthRank(a) + 1) + "/5 " + depthLabel(a.depth); }
+
 function depthBadge(a) {
-  const parts = [depthLabel(a.depth)];
+  const parts = [depthScore(a)];
   if (a.years) parts.push(a.years + " yrs");
   if (a.last === "current") parts.push("Now");
   else if (typeof a.last === "number") parts.push(String(a.last));
@@ -1274,8 +1339,8 @@ function depthBadge(a) {
 
 /* Full export line for a rated skill. */
 function depthDetail(a, id) {
-  if (a.depth === "none") return "None — asked, no real experience";
-  const parts = [depthLabel(a.depth)];
+  if (a.depth === "none") return "1/5 None — asked, no real experience";
+  const parts = [depthScore(a)];
   if (a.years) parts.push(a.years + " yrs");
   const iy = interviewYear();
   if (a.last === "current") parts.push("hands-on now (as of " + fmtDate(interviewDate()) + ")");
@@ -1344,58 +1409,6 @@ function renderWrapStep(main, w) {
   redrawSummary = renderReview(main);
 }
 
-/* 1–5 slider for one role. Dragging updates the labels in place (no
-   re-render, so the slider keeps focus) and saves the recruiter's rating;
-   "Use suggested" clears it. */
-function fitSlider(f, onChange) {
-  const wrap = el("div", "fit-rate");
-  const top = el("div", "fit-rate-top");
-  const score = el("span", "fit-score");
-  const word = el("span", "fit-word");
-  top.appendChild(score);
-  top.appendChild(word);
-  wrap.appendChild(top);
-
-  const slider = el("input", "fit-slider");
-  slider.type = "range";
-  slider.min = "1"; slider.max = "5"; slider.step = "1";
-  slider.setAttribute("aria-label", "Fit rating for " + f.r.role.label + ", 1 to 5");
-  wrap.appendChild(slider);
-  const ticks = el("div", "fit-ticks");
-  for (let i = 1; i <= 5; i++) ticks.appendChild(el("span", null, String(i)));
-  wrap.appendChild(ticks);
-
-  const foot = el("div", "fit-cov");
-  const note = el("span");
-  const reset = el("button", "link-btn", "Use suggested");
-  reset.type = "button";
-  foot.appendChild(note);
-  foot.appendChild(reset);
-  wrap.appendChild(foot);
-
-  const suggested = suggestedRating(f.fit);
-  const paint = () => {
-    const r = fitRating(f);
-    slider.value = String(r.value);
-    slider.setAttribute("aria-valuetext", r.value + " — " + FIT_SCALE[r.value - 1]);
-    wrap.classList.toggle("set", r.set);
-    score.innerHTML = r.value + "<small>/5</small>";
-    word.textContent = FIT_SCALE[r.value - 1] + (r.set ? "" : " · suggested");
-    note.textContent = (r.set ? "Suggested " + suggested + " · " : "") + "rated " + f.rated + " of " + f.total + " skills";
-    reset.hidden = !r.set;
-  };
-  slider.addEventListener("input", () => {
-    state.fit.ratings[f.key] = Number(slider.value);
-    saveState(); paint(); onChange();
-  });
-  reset.addEventListener("click", () => {
-    delete state.fit.ratings[f.key];
-    saveState(); paint(); onChange();
-  });
-  paint();
-  return wrap;
-}
-
 function renderFit(main, onChange) {
   main.appendChild(el("h3", "section-head", "Role Fit"));
   main.appendChild(el("p", "subtitle",
@@ -1417,7 +1430,15 @@ function renderFit(main, onChange) {
       if (f.profile) name.appendChild(el("span", "fit-profile", esc(f.profile.kicker + ": " + f.profile.profile)));
       row.appendChild(name);
 
-      row.appendChild(fitSlider(f, onChange));
+      const bar = el("div", "fit-bar-wrap");
+      const track = el("div", "fit-bar");
+      const fill = el("div", "fit-fill");
+      fill.style.width = Math.round(f.fit * 100) + "%";
+      track.appendChild(fill);
+      bar.appendChild(track);
+      bar.appendChild(el("span", "fit-pct", Math.round(f.fit * 100) + "%"));
+      bar.appendChild(el("span", "fit-cov", "rated " + f.rated + " of " + f.total + " skills"));
+      row.appendChild(bar);
 
       const actions = el("div", "fit-actions");
       const prim = el("label", "seg");
@@ -1463,11 +1484,8 @@ function renderFit(main, onChange) {
   const how = el("details", "fit-how");
   how.appendChild(el("summary", null, "How fit is scored"));
   how.appendChild(el("p", "q-help",
-    "Fit is rated 1–5: " + FIT_SCALE.map((w, i) => (i + 1) + " " + w).join(", ") + ". " +
-    "The slider starts at a suggestion from the skill ratings; drag it to set your own, which is what the write-up uses. " +
-    "The suggestion scores each role on its own skills: None 0, Exposure 25%, Hands-on 60%, Owned 85%, Led 100%, with stale skills at 60%, " +
-    "then maps 0% to 1 and 100% to 5. Unrated skills count as zero, so explore a role and rate its skills before trusting a low suggestion. " +
-    "Skills most roles share (like AI in engineering work) count half. " +
+    "Each role is scored on its own skills, from the 1–5 skill ratings: 1 None 0, 2 Exposure 25%, 3 Hands-on 60%, 4 Owned 85%, 5 Led 100%. Stale skills count at 60%. " +
+    "Unrated skills count as zero, so explore a role and rate its skills before trusting a low score. Skills most roles share (like AI in engineering work) count half. " +
     "Once the candidate has 3+ tools recorded, tool overlap adds 20% to roles their skills already score on."));
   main.appendChild(how);
 
@@ -1592,16 +1610,13 @@ function collectSummary() {
 
   /* Role fit first — the answer to "where do we place them?" */
   const fitLines = [];
-  if (state.fit.primary) {
-    fitLines.push({ label: "Primary role", value: roleName(state.fit.primary) + " — " + fitRatingText(roleFit(state.fit.primary)), id: "fit_primary" });
-  }
+  if (state.fit.primary) fitLines.push({ label: "Primary role", value: roleName(state.fit.primary), id: "fit_primary" });
   if (state.fit.also.length) fitLines.push({ label: "Also fits", value: state.fit.also.map(roleName).join(", "), id: "fit_also" });
   if (state.fit.level) fitLines.push({ label: "Level", value: state.fit.level, id: "fit_level" });
-  /* the five strongest by skills, plus any role the recruiter rated */
-  const top = rankedFits().filter((f, i) => (f.fit > 0 && i < 5) || state.fit.ratings[f.key]);
+  const top = rankedFits().filter(f => f.fit > 0).slice(0, 5);
   if (top.length) {
-    fitLines.push({ label: "Fit ratings", id: "fit_top",
-      value: top.map(f => f.r.role.label + " " + fitRatingText(f) + " [" + f.rated + "/" + f.total + " skills rated]").join(" · ") });
+    fitLines.push({ label: "Top fits", id: "fit_top",
+      value: top.map(f => f.r.role.label + " " + Math.round(f.fit * 100) + "% (" + f.rated + "/" + f.total + " rated)").join(" · ") });
   }
   const primaryFit = state.fit.primary && roleFit(state.fit.primary);
   if (primaryFit && primaryFit.profile) {

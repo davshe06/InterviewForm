@@ -25,9 +25,11 @@ Five steps, in the order a screening call runs:
 2. **Career History**: recent positions, including the manager they reported
    to, what they owned, and why they left.
 3. **Skills & Deep Dive**
-   - Every skill of the roles being explored is rated None / Exposure /
-     Hands-on / Owned / Led, with years, last hands-on year, evidence,
-     interest, and their experience.
+   - Every skill of the roles being explored is rated 1–5 on a slider
+     (1 None, 2 Exposure, 3 Hands-on, 4 Owned, 5 Led). Rating a skill they
+     have opens years, last hands-on year, evidence, interest, and a box for
+     the context behind the rating.
+   - Add any skill that isn't listed. It gets its own slider and context box.
    - Once a skill is rated, its deep dive opens in place: the questions to
      ask, what strong answers include, red flags, and structured capture.
    - Tools and AI use follow the skills.
@@ -37,9 +39,8 @@ Five steps, in the order a screening call runs:
    - Screening willingness, references, interview availability, and agreed
      next steps.
 5. **Role Fit & Wrap-up** (after the call)
-   - Every role gets a 1–5 fit rating on a slider. It starts at a suggestion
-     from the skill ratings, and you can drag it to set your own. Plus a
-     suggested level and the primary role.
+   - Every role scored against the skill ratings, with a suggested level and
+     the primary role.
    - Your summary and concerns.
    - Review and export.
 
