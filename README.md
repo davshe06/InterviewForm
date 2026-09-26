@@ -47,6 +47,7 @@ GitHub Pages: Settings → Pages → Deploy from a branch → `main` / `/ (root)
 | `app.js` | Generic render engine — steps, state, depth model, role fit, exports, theming |
 | `styles.css` | All styling, including light/dark and per-business accents |
 | `docx.js` | Dependency-free Word (.docx) generator |
+| `sw.js` | Service worker — every load gets the latest deploy (no hard refresh); works offline |
 | `api/analyze.js` | Vercel serverless function for AI analysis |
 | `tools/check-catalogs.cjs` | Validates skills, roles, and interview steps — `node tools/check-catalogs.cjs` |
 | `tools/browser-test.cjs` | End-to-end browser test — `node tools/browser-test.cjs` |
@@ -59,7 +60,10 @@ Namespaced `rh-interview-*` so this app does not collide with RHJOForm or
 TDCJOchecklist — all three are served from `davshe06.github.io`, which is a
 single origin, and `localStorage` is per-origin rather than per-path.
 
-## Cache busting
+## Updates without a hard refresh
 
-`index.html` appends `?v=N` to every asset. Bump `N` on each deploy so browsers
-and the GitHub Pages CDN fetch fresh files instead of serving stale copies.
+`sw.js` makes every load check the server, so a normal reload (or reopening
+the page) always shows the latest deploy, and the form still opens offline. A
+tab left open across a deploy shows a "new version available" bar with a
+Reload button; answers and the current step are kept. `index.html` still
+appends `?v=N` to every asset — bump `N` on each deploy.

@@ -160,11 +160,23 @@ to a hiring manager.
 
 ## Conventions
 
-**Cache busting is mandatory.** `index.html` appends `?v=N` to every asset.
-**Bump `N` on every deploy** — GitHub Pages sits behind a CDN and browsers cache
-JS hard. This has bitten this codebase before.
+**Nobody should ever need a hard refresh.** `sw.js` (a service worker,
+registered from `app.js` over http/https only) makes every load revalidate
+with the server and tags each `.js`/`.css` URL per load, so a normal reload or
+revisit always runs the latest deploy — even if a `?v` bump is forgotten. It
+falls back to its Cache Storage copy only when offline. A tab left open across
+a deploy gets a "new version available — Reload" bar (it compares its `?v`
+with the live `index.html`), and the current step survives the reload. Keep
+the service worker network-first; never make it cache-first. To retire it,
+ship an `sw.js` that unregisters itself — deleting the file leaves installed
+workers running.
 
-**Storage keys are namespaced `rh-interview-*`** (record: `rh-interview-v2`).
+**Still bump `?v=N` on every deploy** — it covers first visits before the
+service worker installs, and it's what triggers the reload bar in open tabs.
+
+**Storage keys are namespaced `rh-interview-*`** (record: `rh-interview-v2`;
+current step per tab: sessionStorage `rh-interview-step`; offline copy: Cache
+Storage `rh-interview-offline-*`).
 RHJOForm, TDCJOchecklist and this app are all served from `davshe06.github.io`,
 and `localStorage` is per-**origin**, not per-path. Never revert these to a
 sibling's keys or the apps will overwrite each other's saved data.
@@ -178,7 +190,10 @@ is `"type": "module"` for the Vercel function.)
 drives `file://index.html` in Chromium
 (`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`) through a full
 interview, every export, all 36 roles, persistence, dark mode, and 390px
-width, and fails on any `pageerror` or console error. Extend it when behavior
+width; then serves a copy with GitHub Pages' caching headers to check that
+deploys show up without a hard refresh (with a no-service-worker control),
+the reload bar, and offline loading. It fails on any `pageerror` or console
+error. Extend it when behavior
 changes. Syntax checks alone have missed real bugs here.
 
 **Theming.** Colors are CSS custom properties. Light lives on bare `:root`; dark
