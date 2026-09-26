@@ -179,6 +179,14 @@ Hands-on .6, Owned .85, Led 1; stale ×.6; unrated = 0 (coverage matters); a
 skill used by 5+ roles weighs half. With 3+ tools recorded, tool overlap is
 20% — but only for roles whose skills already score above zero (tools adjust a
 score, never create one). Roles show only with a non-zero fit or when explored.
+**Fit is rated 1–5** (Poor, Weak, Possible, Good, Strong fit) with a slider
+on each role row. The computed score only *suggests* a rating:
+`suggestedRating()` maps 0% → 1 and 100% → 5. The slider starts there. When the
+recruiter drags it, their rating is saved in `state.fit.ratings[roleKey]`,
+and "Use suggested" clears it. The write-up and the leading-fit card show
+`fitRatingText()` (e.g. "4/5 Good fit"), with "(suggested)" on any role the
+recruiter hasn't rated. Rows stay ordered by the computed score so they don't
+jump while a slider moves. Percentages aren't shown anywhere.
 `roleProfile()` gives "Currently / Was marketable as"; `suggestedLevel()`
 suggests seniority from ratings (ignoring None) and direct reports. "Explore"
 adds a role to the shortlist and jumps to the Skills step.

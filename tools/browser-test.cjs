@@ -192,6 +192,25 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   await p.locator(".fit-row", { hasText: "Software Engineer (Backend)" }).locator(".seg", { hasText: "Primary" }).click();
   await p.locator(".fit-row", { hasText: "DevOps / SRE" }).locator(".chip", { hasText: "Also fits" }).click();
   check(await p.evaluate(() => state.fit.primary) === "tech:backend_engineer", "primary role saved");
+
+  /* 1–5 fit rating: the slider starts at the suggestion, the recruiter sets their own */
+  const fitRow = name => p.locator(".fit-row", { has: p.locator(".fit-role", { hasText: name }) });
+  const beSuggested = await p.evaluate(() => suggestedRating(roleFit("tech:backend_engineer").fit));
+  check(beSuggested >= 1 && beSuggested <= 5 && await fitRow("Software Engineer (Backend)").locator(".fit-slider").inputValue() === String(beSuggested),
+    "slider starts at the suggested 1–5 rating (" + beSuggested + ")");
+  check((await fitRow("Software Engineer (Backend)").locator(".fit-word").innerText()).includes("suggested"), "an untouched rating is marked suggested");
+  check(await fitRow("Software Engineer (Backend)").locator(".link-btn").isHidden(), "no reset until the recruiter rates");
+  check(await p.locator(".fit-pct, .fit-bar").count() === 0, "percentages replaced by the 1–5 rating");
+  await fitRow("DevOps / SRE").locator(".fit-slider").fill("4");
+  check(await p.evaluate(() => state.fit.ratings["tech:devops_sre"]) === 4, "slider saves the recruiter's rating");
+  check((await fitRow("DevOps / SRE").locator(".fit-rate").innerText()).includes("Good fit") &&
+        await fitRow("DevOps / SRE").locator(".fit-rate.set").count() === 1, "slider label updates in place");
+  await fitRow("Software Engineer (Backend)").locator(".fit-slider").fill("5");
+  await fitRow("Full-Stack Developer").locator(".fit-slider").fill("2");
+  await fitRow("Full-Stack Developer").locator(".link-btn").click();
+  check(await p.evaluate(() => state.fit.ratings["tech:fullstack_developer"]) === undefined &&
+        await fitRow("Full-Stack Developer").locator(".fit-slider").inputValue() === String(await p.evaluate(() => suggestedRating(roleFit("tech:fullstack_developer").fit))),
+    "Use suggested clears the recruiter's rating");
   check((await p.locator(".question", { hasText: "Level to place them at" }).innerText()).includes("Suggested"), "level suggestion shown");
   await p.locator(".seg", { hasText: /^Senior$/ }).click();
   await p.locator(".question", { hasText: "Why this role" }).locator("textarea").fill("Owns backend services end to end; cloud is recent and hands-on.");
@@ -252,7 +271,9 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const summary = await p.locator(".summary").innerText();
   const expect = [
     ["Jordan Rivera — Software Engineer (Backend)", "title line"],
-    ["Software Engineer (Backend)", "primary role"],
+    ["Software Engineer (Backend) — 5/5 Strong fit", "primary role with its 1–5 rating"],
+    ["DevOps / SRE 4/5 Good fit [", "recruiter's fit rating in the write-up"],
+    ["(suggested)", "untouched ratings marked suggested in the write-up"],
     ["Strong backend owner, recent cloud work.", "recruiter summary"],
     ["Wants to own a platform end to end", "why they're looking"],
     ["ideal $80–$95/hr · bottom end $75/hr", "hourly pay line"],
@@ -292,7 +313,7 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   /* ---- persistence and reset ---- */
   await p.evaluate(() => flushSave());
   await p.reload();
-  check(await p.evaluate(() => state.fit.primary === "tech:backend_engineer" && state.skills.backend_languages.depth === "owned" && state.common.pay.hourly.floor === "75"), "record survives a reload");
+  check(await p.evaluate(() => state.fit.primary === "tech:backend_engineer" && state.skills.backend_languages.depth === "owned" && state.common.pay.hourly.floor === "75" && state.fit.ratings["tech:devops_sre"] === 4), "record survives a reload");
   check(await p.evaluate(() => !!localStorage.getItem("rh-interview-v2")), "saved under an rh-interview-* key");
 
   /* ---- an interview saved under the old 10-step layout still loads ---- */

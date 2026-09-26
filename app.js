@@ -58,7 +58,7 @@ function blankInterview() {
     customSkills: [],    /* recruiter-added skills: { id, label } */
     tools: {},           /* tool category key → chips */
     ai: {},
-    fit: { primary: null, also: [], level: null, notes: "" },
+    fit: { primary: null, also: [], level: null, notes: "", ratings: {} },  /* ratings: role key → recruiter's 1–5 */
     notes: { pretext: "", live: "", pretextH: null, liveH: null },
     aiAnalysis: null,
     interviewDate: null
@@ -365,6 +365,23 @@ function roleFit(key) {
   /* tools only adjust a score the skills have earned — never create one */
   const fit = toolScore == null || skillScore === 0 ? skillScore : .8 * skillScore + .2 * toolScore;
   return { key, r, fit, rated, total: r.role.skills.length, profile: roleProfile(r.role) };
+}
+
+/* Fit is rated 1–5. The computed score suggests a rating (0% → 1,
+   100% → 5); the recruiter sets the real one with a slider. Until they
+   move it, the suggestion stands and is marked as such everywhere. */
+const FIT_SCALE = ["Poor fit", "Weak fit", "Possible fit", "Good fit", "Strong fit"];
+
+function suggestedRating(fit) { return Math.min(5, Math.max(1, Math.round(1 + fit * 4))); }
+
+function fitRating(f) {
+  const set = state.fit.ratings[f.key];
+  return set ? { value: set, set: true } : { value: suggestedRating(f.fit), set: false };
+}
+
+function fitRatingText(f) {
+  const r = fitRating(f);
+  return r.value + "/5 " + FIT_SCALE[r.value - 1] + (r.set ? "" : " (suggested)");
 }
 
 function rankedFits() {
@@ -1238,7 +1255,7 @@ function drawDepthSummary(container) {
   if (top && top.fit > 0) {
     const card = el("div", "profile-card");
     card.appendChild(el("div", "profile-kicker", "Leading fit so far"));
-    card.appendChild(el("div", "profile-name", esc(top.r.role.label) + " · " + Math.round(top.fit * 100) + "%"));
+    card.appendChild(el("div", "profile-name", esc(top.r.role.label) + " · " + esc(fitRatingText(top))));
     card.appendChild(el("p", "profile-detail",
       (top.profile ? esc(top.profile.kicker + ": " + top.profile.profile) + ". " : "") +
       "The full ranking across every role is on Role Fit & Wrap-up."));
@@ -1327,6 +1344,58 @@ function renderWrapStep(main, w) {
   redrawSummary = renderReview(main);
 }
 
+/* 1–5 slider for one role. Dragging updates the labels in place (no
+   re-render, so the slider keeps focus) and saves the recruiter's rating;
+   "Use suggested" clears it. */
+function fitSlider(f, onChange) {
+  const wrap = el("div", "fit-rate");
+  const top = el("div", "fit-rate-top");
+  const score = el("span", "fit-score");
+  const word = el("span", "fit-word");
+  top.appendChild(score);
+  top.appendChild(word);
+  wrap.appendChild(top);
+
+  const slider = el("input", "fit-slider");
+  slider.type = "range";
+  slider.min = "1"; slider.max = "5"; slider.step = "1";
+  slider.setAttribute("aria-label", "Fit rating for " + f.r.role.label + ", 1 to 5");
+  wrap.appendChild(slider);
+  const ticks = el("div", "fit-ticks");
+  for (let i = 1; i <= 5; i++) ticks.appendChild(el("span", null, String(i)));
+  wrap.appendChild(ticks);
+
+  const foot = el("div", "fit-cov");
+  const note = el("span");
+  const reset = el("button", "link-btn", "Use suggested");
+  reset.type = "button";
+  foot.appendChild(note);
+  foot.appendChild(reset);
+  wrap.appendChild(foot);
+
+  const suggested = suggestedRating(f.fit);
+  const paint = () => {
+    const r = fitRating(f);
+    slider.value = String(r.value);
+    slider.setAttribute("aria-valuetext", r.value + " — " + FIT_SCALE[r.value - 1]);
+    wrap.classList.toggle("set", r.set);
+    score.innerHTML = r.value + "<small>/5</small>";
+    word.textContent = FIT_SCALE[r.value - 1] + (r.set ? "" : " · suggested");
+    note.textContent = (r.set ? "Suggested " + suggested + " · " : "") + "rated " + f.rated + " of " + f.total + " skills";
+    reset.hidden = !r.set;
+  };
+  slider.addEventListener("input", () => {
+    state.fit.ratings[f.key] = Number(slider.value);
+    saveState(); paint(); onChange();
+  });
+  reset.addEventListener("click", () => {
+    delete state.fit.ratings[f.key];
+    saveState(); paint(); onChange();
+  });
+  paint();
+  return wrap;
+}
+
 function renderFit(main, onChange) {
   main.appendChild(el("h3", "section-head", "Role Fit"));
   main.appendChild(el("p", "subtitle",
@@ -1348,15 +1417,7 @@ function renderFit(main, onChange) {
       if (f.profile) name.appendChild(el("span", "fit-profile", esc(f.profile.kicker + ": " + f.profile.profile)));
       row.appendChild(name);
 
-      const bar = el("div", "fit-bar-wrap");
-      const track = el("div", "fit-bar");
-      const fill = el("div", "fit-fill");
-      fill.style.width = Math.round(f.fit * 100) + "%";
-      track.appendChild(fill);
-      bar.appendChild(track);
-      bar.appendChild(el("span", "fit-pct", Math.round(f.fit * 100) + "%"));
-      bar.appendChild(el("span", "fit-cov", "rated " + f.rated + " of " + f.total + " skills"));
-      row.appendChild(bar);
+      row.appendChild(fitSlider(f, onChange));
 
       const actions = el("div", "fit-actions");
       const prim = el("label", "seg");
@@ -1402,8 +1463,11 @@ function renderFit(main, onChange) {
   const how = el("details", "fit-how");
   how.appendChild(el("summary", null, "How fit is scored"));
   how.appendChild(el("p", "q-help",
-    "Each role is scored on its own skills: None 0, Exposure 25%, Hands-on 60%, Owned 85%, Led 100%. Stale skills count at 60%. " +
-    "Unrated skills count as zero, so explore a role and rate its skills before trusting a low score. Skills most roles share (like AI in engineering work) count half. " +
+    "Fit is rated 1–5: " + FIT_SCALE.map((w, i) => (i + 1) + " " + w).join(", ") + ". " +
+    "The slider starts at a suggestion from the skill ratings; drag it to set your own, which is what the write-up uses. " +
+    "The suggestion scores each role on its own skills: None 0, Exposure 25%, Hands-on 60%, Owned 85%, Led 100%, with stale skills at 60%, " +
+    "then maps 0% to 1 and 100% to 5. Unrated skills count as zero, so explore a role and rate its skills before trusting a low suggestion. " +
+    "Skills most roles share (like AI in engineering work) count half. " +
     "Once the candidate has 3+ tools recorded, tool overlap adds 20% to roles their skills already score on."));
   main.appendChild(how);
 
@@ -1528,13 +1592,16 @@ function collectSummary() {
 
   /* Role fit first — the answer to "where do we place them?" */
   const fitLines = [];
-  if (state.fit.primary) fitLines.push({ label: "Primary role", value: roleName(state.fit.primary), id: "fit_primary" });
+  if (state.fit.primary) {
+    fitLines.push({ label: "Primary role", value: roleName(state.fit.primary) + " — " + fitRatingText(roleFit(state.fit.primary)), id: "fit_primary" });
+  }
   if (state.fit.also.length) fitLines.push({ label: "Also fits", value: state.fit.also.map(roleName).join(", "), id: "fit_also" });
   if (state.fit.level) fitLines.push({ label: "Level", value: state.fit.level, id: "fit_level" });
-  const top = rankedFits().filter(f => f.fit > 0).slice(0, 5);
+  /* the five strongest by skills, plus any role the recruiter rated */
+  const top = rankedFits().filter((f, i) => (f.fit > 0 && i < 5) || state.fit.ratings[f.key]);
   if (top.length) {
-    fitLines.push({ label: "Top fits", id: "fit_top",
-      value: top.map(f => f.r.role.label + " " + Math.round(f.fit * 100) + "% (" + f.rated + "/" + f.total + " rated)").join(" · ") });
+    fitLines.push({ label: "Fit ratings", id: "fit_top",
+      value: top.map(f => f.r.role.label + " " + fitRatingText(f) + " [" + f.rated + "/" + f.total + " skills rated]").join(" · ") });
   }
   const primaryFit = state.fit.primary && roleFit(state.fit.primary);
   if (primaryFit && primaryFit.profile) {

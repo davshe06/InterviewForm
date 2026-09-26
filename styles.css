@@ -805,7 +805,7 @@ textarea { resize: vertical; }
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
 }
 .fit-row {
-  display: grid; grid-template-columns: minmax(180px, 1.3fr) minmax(160px, 1fr) auto;
+  display: grid; grid-template-columns: minmax(180px, 1.3fr) minmax(180px, 1fr) 250px;
   gap: 14px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line);
   border-left: 4px solid transparent;
 }
@@ -815,11 +815,20 @@ textarea { resize: vertical; }
 .fit-role { font-weight: 600; font-size: 14px; }
 .fit-cat, .fit-cov, .fit-hint { font-size: 12px; color: var(--muted); }
 .fit-profile { font-size: 12.5px; color: var(--accent); font-weight: 600; }
-.fit-bar-wrap { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; }
-.fit-bar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
-.fit-fill { height: 100%; background: var(--accent); border-radius: 999px; }
-.fit-pct { font-weight: 700; font-size: 14px; min-width: 40px; text-align: right; }
-.fit-cov { grid-column: 1 / -1; }
+.fit-rate { display: flex; flex-direction: column; gap: 2px; }
+.fit-rate-top { display: flex; align-items: baseline; gap: 8px; }
+.fit-score { font-weight: 700; font-size: 18px; color: var(--muted); }
+.fit-score small { font-size: 12px; font-weight: 600; }
+.fit-word { font-size: 12.5px; color: var(--muted); }
+.fit-rate.set .fit-score { color: var(--accent); }
+.fit-rate.set .fit-word { color: var(--ink); font-weight: 600; }
+.fit-slider { width: 100%; margin: 4px 0 0; accent-color: var(--accent); opacity: .6; cursor: pointer; }
+.fit-rate.set .fit-slider { opacity: 1; }
+.fit-slider:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.fit-ticks { display: flex; justify-content: space-between; padding: 0 4px; font-size: 11px; color: var(--muted); }
+.fit-cov { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.link-btn { background: none; border: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.link-btn[hidden] { display: none; }
 .fit-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .fit-how { margin: 12px 0 0; font-size: 13px; }
 .fit-how summary { cursor: pointer; color: var(--muted); }

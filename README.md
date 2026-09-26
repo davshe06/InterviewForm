@@ -37,8 +37,9 @@ Five steps, in the order a screening call runs:
    - Screening willingness, references, interview availability, and agreed
      next steps.
 5. **Role Fit & Wrap-up** (after the call)
-   - Every role scored against the ratings, with a suggested level and the
-     primary role.
+   - Every role gets a 1–5 fit rating on a slider. It starts at a suggestion
+     from the skill ratings, and you can drag it to set your own. Plus a
+     suggested level and the primary role.
    - Your summary and concerns.
    - Review and export.
 
