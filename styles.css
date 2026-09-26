@@ -954,6 +954,26 @@ textarea { resize: vertical; }
 }
 .step-nav .btn:only-child { margin-left: auto; }
 
+/* "new version available" bar (app.js → showUpdateBar) */
+.update-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px 10px 16px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18);
+  font-size: 14px;
+}
+
 /* ---------- print: summary only ---------- */
 
 @media print {
@@ -961,7 +981,7 @@ textarea { resize: vertical; }
     --bg: #ffffff; --panel: #ffffff; --ink: #1a2233; --muted: #5b6577;
     --line: #e2e7f0; --accent: #2456d6;
   }
-  .sidebar, .notes-panel, .step-nav, .actions, .checklist, .tip, .ai-box { display: none !important; }
+  .sidebar, .notes-panel, .step-nav, .actions, .checklist, .tip, .ai-box, .update-bar { display: none !important; }
   body, #app { background: #fff; display: block; }
   .panel { max-width: none; padding: 0; }
   .summary { border: none; padding: 0; }

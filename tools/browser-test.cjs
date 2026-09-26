@@ -272,7 +272,102 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
   check(errors.length === 0, "no page or console errors" + (errors.length ? ": " + errors.join(" | ") : ""));
+
+  await updateTests(browser);
+
   await browser.close();
   console.log(failures ? failures + " check(s) failed" : "all checks passed");
   process.exit(failures ? 1 : 0);
 })();
+
+
+/* ---------- staying current without a hard refresh ----------
+   Serves a copy of the site the way GitHub Pages does (Cache-Control:
+   max-age=600 plus ETags), "deploys" changes into the copy, and checks that
+   ordinary loads pick them up — even when nobody bumps ?v — that an open tab
+   is offered a reload, and that the form still opens offline. */
+async function updateTests(browser) {
+  const http = require("http");
+  const crypto = require("crypto");
+  const os = require("os");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "interview-site-"));
+  const repo = path.join(__dirname, "..");
+  fs.readdirSync(repo).filter(f => /\.(html|js|css)$/.test(f)).forEach(f => fs.copyFileSync(path.join(repo, f), path.join(root, f)));
+  const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+
+  const server = http.createServer((req, res) => {
+    let file = decodeURIComponent(new URL(req.url, "http://x").pathname).replace(/^\/site\/?/, "") || "index.html";
+    const full = path.join(root, file);
+    if (!full.startsWith(root) || !fs.existsSync(full)) { res.writeHead(404); return res.end(); }
+    const body = fs.readFileSync(full);
+    const etag = '"' + crypto.createHash("md5").update(body).digest("hex") + '"';
+    const headers = { "Content-Type": types[path.extname(full)] || "application/octet-stream",
+      "Cache-Control": "max-age=600", "ETag": etag };
+    if (req.headers["if-none-match"] === etag) { res.writeHead(304, headers); return res.end(); }
+    res.writeHead(200, headers);
+    res.end(body);
+  });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  const url = "http://127.0.0.1:" + server.address().port + "/site/";
+
+  const ctx = await browser.newContext();
+  const p = await ctx.newPage();
+  const errors = [];
+  p.on("pageerror", e => errors.push("pageerror: " + e.message));
+  const deploy = (file, fn) => fs.writeFileSync(path.join(root, file), fn(fs.readFileSync(path.join(root, file), "utf8")));
+
+  await p.goto(url);
+  await p.evaluate(() => navigator.serviceWorker.ready);
+  await p.reload();
+  check(await p.evaluate(() => !!navigator.serviceWorker.controller), "service worker controls the page");
+
+  /* a deploy that forgets to bump ?v still shows up on a normal reload */
+  deploy("app.js", s => s + "\nwindow.__deploy = 'A';\n");
+  await p.reload();
+  check(await p.evaluate(() => window.__deploy) === "A", "normal reload picks up a deploy without a ?v bump");
+
+  /* …and on a plain revisit, which browsers otherwise serve from cache */
+  deploy("app.js", s => s.replace("window.__deploy = 'A';", "window.__deploy = 'B';"));
+  await p.goto("about:blank");
+  await p.goto(url);
+  check(await p.evaluate(() => window.__deploy) === "B", "revisiting the page picks up a deploy");
+
+  /* a tab left open across a deploy is offered a reload, on the same step */
+  await p.evaluate(() => { currentStep = 3; render(); });
+  deploy("index.html", s => s.replace(/\?v=(\d+)/g, (m, n) => "?v=" + (Number(n) + 1)));
+  deploy("app.js", s => s.replace("window.__deploy = 'B';", "window.__deploy = 'C';"));
+  await p.evaluate(() => checkForUpdate());
+  await p.waitForSelector(".update-bar", { timeout: 5000 }).catch(() => {});
+  check(await p.locator(".update-bar").count() === 1, "open tab shows the new-version bar");
+  await Promise.all([p.waitForNavigation(), p.click('.update-bar button:has-text("Reload")')]);
+  check(await p.evaluate(() => window.__deploy) === "C", "Reload button loads the new version");
+  check(await p.evaluate(() => currentStep) === 3 && await p.locator("h2").first().innerText() === "Technical Deep Dive", "reload returns to the same step");
+  await p.evaluate(() => checkForUpdate());
+  await p.waitForTimeout(500);
+  check(await p.locator(".update-bar").count() === 0, "no bar once up to date");
+
+  /* control: with the service worker blocked, the same revisit is stale —
+     proof the checks above test something real */
+  const bare = await browser.newContext({ serviceWorkers: "block" });
+  const q = await bare.newPage();
+  await q.goto(url);
+  deploy("index.html", s => s.replace(/\?v=(\d+)/g, (m, n) => "?v=" + (Number(n) + 1)));
+  deploy("app.js", s => s.replace("window.__deploy = 'C';", "window.__deploy = 'D';"));
+  await q.goto("about:blank");
+  await q.goto(url);
+  check(await q.evaluate(() => window.__deploy) === "C", "control: without the service worker a revisit serves the old version");
+  await bare.close();
+  await p.goto(url);
+  check(await p.evaluate(() => window.__deploy) === "D", "with the service worker the same revisit is current");
+
+  /* offline: the last copy still opens */
+  await new Promise(r => server.close(r));
+  server.closeAllConnections && server.closeAllConnections();
+  await ctx.setOffline(true);
+  await p.reload().catch(() => {});
+  check(await p.locator(".nav-step").count() === 9, "form still opens offline");
+
+  check(errors.length === 0, "no page errors while updating" + (errors.length ? ": " + errors.join(" | ") : ""));
+  await ctx.close();
+  fs.rmSync(root, { recursive: true, force: true });
+}

@@ -69,7 +69,18 @@ function defaultStore() { return { businessId: BUSINESS_ORDER[0], interview: bla
 
 let store = loadStore();
 let state = store.interview;
-let currentStep = 0;
+/* The step is remembered per tab (sessionStorage), so a reload — including
+   the "new version" reload further down — lands back where the recruiter was. */
+const STEP_KEY = "rh-interview-step";
+let currentStep = restoreStep();
+
+function restoreStep() {
+  try { return Math.max(0, parseInt(sessionStorage.getItem(STEP_KEY), 10) || 0); }
+  catch (e) { return 0; }
+}
+function rememberStep() {
+  try { sessionStorage.setItem(STEP_KEY, String(currentStep)); } catch (e) {}
+}
 
 function loadStore() {
   try {
@@ -1812,6 +1823,7 @@ function render() {
   app.innerHTML = "";
   document.documentElement.dataset.form = accentForm();
   if (currentStep >= STEPS.length) currentStep = STEPS.length - 1;
+  rememberStep();
 
   const side = el("nav", "sidebar");
   side.appendChild(el("div", "brand", esc(IV.brand.title) + "<br><span>" + esc(IV.brand.subtitle) + "</span>"));
@@ -1966,6 +1978,51 @@ function notesField(labelText, key, placeholder) {
 
   block.appendChild(ta);
   return block;
+}
+
+/* ---------- staying current ----------
+   sw.js makes every load revalidate with the server, so a normal reload always
+   gets the latest deploy (no hard refresh). A tab left open across a deploy
+   still runs the old code, so when it comes back into view (and every 15
+   minutes) the page compares its asset version with the live index.html and
+   offers a one-click reload. Answers are already saved; nothing is lost.
+   Both only apply over http(s) — opening index.html from disk skips them. */
+
+const SERVED = /^https?:$/.test(location.protocol);
+
+if (SERVED && "serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
+}
+
+function assetVersion(html) {
+  const m = /app\.js\?v=([^"'&\s>]+)/.exec(html);
+  return m ? m[1] : null;
+}
+const LOADED_VERSION = assetVersion(document.documentElement.outerHTML);
+
+async function checkForUpdate() {
+  if (!SERVED || !LOADED_VERSION || document.querySelector(".update-bar")) return;
+  try {
+    const resp = await fetch("index.html", { cache: "no-store" });
+    if (!resp.ok) return;
+    const live = assetVersion(await resp.text());
+    if (live && live !== LOADED_VERSION) showUpdateBar();
+  } catch (e) { /* offline — try again later */ }
+}
+
+function showUpdateBar() {
+  const bar = el("div", "update-bar");
+  bar.setAttribute("role", "status");
+  bar.appendChild(el("span", null, "A new version of the form is available. Your answers are saved."));
+  const btn = el("button", "btn primary", "Reload");
+  btn.addEventListener("click", () => { flushSave(); rememberStep(); location.reload(); });
+  bar.appendChild(btn);
+  document.body.appendChild(bar);
+}
+
+if (SERVED) {
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkForUpdate(); });
+  setInterval(checkForUpdate, 15 * 60 * 1000);
 }
 
 document.addEventListener("DOMContentLoaded", render);
