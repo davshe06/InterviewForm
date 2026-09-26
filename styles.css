@@ -1,4 +1,4 @@
-/* Job Order Intake Builder */
+/* Candidate Interview Form */
 
 :root {
   --bg: #f4f6fa;
@@ -663,52 +663,55 @@ textarea { resize: vertical; }
 }
 .tip.warn { background: var(--warn-bg); border-color: var(--warn-line); }
 
-/* ---------- allocator ---------- */
+/* ---------- experience depth ---------- */
 
-.allocator {
+.depth-legend {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.depth-legend-test { margin-bottom: 8px; }
+.depth-legend dl { margin: 0; display: grid; grid-template-columns: 90px 1fr; gap: 3px 12px; }
+.depth-legend dt { font-weight: 700; }
+.depth-legend dd { margin: 0; color: var(--muted); }
+
+.depth-list {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
   margin-bottom: 16px;
 }
-.alloc-row {
-  display: grid;
-  grid-template-columns: 1fr auto 90px;
-  align-items: center;
-  gap: 14px;
-  padding: 11px 16px;
-  border-bottom: 1px solid var(--line);
+.depth-row { padding: 12px 16px; border-bottom: 1px solid var(--line); border-left: 4px solid transparent; }
+.depth-row:last-child { border-bottom: none; }
+.depth-row.rated { border-left-color: var(--line); }
+.depth-row.strong { border-left-color: var(--accent); }
+.depth-head { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; }
+.depth-name { font-weight: 600; font-size: 14px; }
+.depth-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 22px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
 }
-.alloc-row:last-child { border-bottom: none; }
-.alloc-head {
-  font-size: 12px;
+.depth-field { display: flex; flex-direction: column; gap: 5px; }
+.depth-lab {
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .5px;
   color: var(--muted);
-  background: var(--head-bg);
 }
-.alloc-name { font-weight: 600; font-size: 14px; }
-.alloc-pct input { width: 80px; text-align: center; }
-.alloc-pct input:disabled { background: var(--disabled-bg); color: var(--disabled-ink); }
+.depth-field select { width: auto; min-width: 110px; padding: 5px 8px; font-size: 13px; }
+.depth-last { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.depth-flags { margin-top: 10px; gap: 6px; }
+.depth-flags .tip { padding: 8px 12px; font-size: 13px; }
 
-.total-bar {
-  height: 10px;
-  background: var(--line);
-  border-radius: 999px;
-  overflow: hidden;
-  margin-top: 4px;
-}
-.total-fill {
-  height: 100%;
-  width: 0;
-  background: var(--accent);
-  border-radius: 999px;
-  transition: width .25s;
-}
-.total-fill.good { background: var(--good); }
-.total-fill.over { background: #d63c2e; }
 .total-label { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
 
 .profile-card {
@@ -721,6 +724,92 @@ textarea { resize: vertical; }
 .profile-kicker { font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: #9db4e8; font-weight: 700; }
 .profile-name { font-size: 20px; font-weight: 700; margin: 4px 0 6px; }
 .profile-detail { margin: 0; font-size: 13.5px; color: #d4defa; }
+
+/* role picker groups + shortlist from the other business */
+.picker-group {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--muted); margin: 14px 0 8px;
+}
+.shortlist-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 10px; }
+.shortlist-lab { font-size: 13px; color: var(--muted); }
+
+/* role header on the depth step */
+.role-block {
+  margin: 22px 0 10px;
+  padding: 12px 16px;
+  background: var(--accent-soft);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+}
+.role-block-title { font-weight: 700; font-size: 15.5px; }
+.role-block-opener { font-size: 14px; margin-top: 6px; font-style: italic; }
+.role-block-coach { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.shared-note { margin: 0 0 8px; }
+.depth-what { font-weight: 400; font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+
+/* repeated mini-forms (career history positions) */
+.group-list { display: flex; flex-direction: column; gap: 10px; }
+.group-item {
+  display: grid; grid-template-columns: 26px 1fr; gap: 10px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px;
+}
+.group-num { font-weight: 700; color: var(--accent); padding-top: 18px; text-align: center; }
+.group-grid { display: grid; grid-template-columns: 1.4fr 1.4fr 1fr; gap: 8px 10px; }
+.group-field { display: flex; flex-direction: column; gap: 3px; }
+.group-field.long { grid-column: 1 / -1; }
+.group-field-lab, .pay-lab {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted);
+}
+
+/* pay range: ideal low–high plus bottom end */
+.payrange { display: flex; flex-wrap: wrap; gap: 12px 28px; }
+.pay-block { display: flex; flex-direction: column; gap: 5px; }
+.pay-row { display: flex; align-items: center; gap: 8px; }
+.pay-input { position: relative; display: inline-flex; align-items: center; }
+.pay-cur { position: absolute; left: 10px; color: var(--muted); font-size: 14px; pointer-events: none; }
+.pay-input input { width: 130px; padding-left: 22px; }
+.pay-unit { color: var(--muted); font-size: 13px; }
+
+/* deep dive: interview script + answer signals */
+.dive-ask {
+  margin: 12px 0; padding: 10px 14px;
+  background: var(--tip-bg); border: 1px solid var(--tip-line); border-radius: var(--radius);
+}
+.dive-ask-title, .dive-signal-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted);
+}
+.dive-ask ol { margin: 6px 0 0; padding-left: 20px; font-size: 14px; }
+.dive-ask li { margin: 4px 0; }
+.dive-signals { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
+.dive-signal { padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--line); font-size: 13px; }
+.dive-signal p { margin: 4px 0 0; }
+.dive-signal.good { border-left: 4px solid var(--good); }
+.dive-signal.bad { border-left: 4px solid var(--warn-line); background: var(--warn-bg); }
+
+/* role fit ranking */
+.fit-table {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+}
+.fit-row {
+  display: grid; grid-template-columns: minmax(180px, 1.3fr) minmax(160px, 1fr) auto;
+  gap: 14px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line);
+  border-left: 4px solid transparent;
+}
+.fit-row:last-child { border-bottom: none; }
+.fit-row.primary { border-left-color: var(--accent); background: var(--accent-soft); }
+.fit-name { display: flex; flex-direction: column; gap: 2px; }
+.fit-role { font-weight: 600; font-size: 14px; }
+.fit-cat, .fit-cov, .fit-hint { font-size: 12px; color: var(--muted); }
+.fit-profile { font-size: 12.5px; color: var(--accent); font-weight: 600; }
+.fit-bar-wrap { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; }
+.fit-bar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.fit-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+.fit-pct { font-weight: 700; font-size: 14px; min-width: 40px; text-align: right; }
+.fit-cov { grid-column: 1 / -1; }
+.fit-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.fit-how { margin: 12px 0 0; font-size: 13px; }
+.fit-how summary { cursor: pointer; color: var(--muted); }
+.btn.small { padding: 5px 12px; font-size: 13px; }
 
 /* ---------- deep dives ---------- */
 
@@ -753,6 +842,7 @@ textarea { resize: vertical; }
 }
 .badge-must { background: var(--accent-soft); color: var(--accent); }
 .badge-nice { background: #f0f2f7; color: var(--muted); }
+.badge-stale { background: var(--warn-bg); color: var(--ink); border: 1px solid var(--warn-line); }
 .dive-body { padding: 4px 18px 18px; border-top: 1px solid var(--line); }
 .dive-body .questions { margin-top: 12px; }
 
@@ -913,8 +1003,12 @@ textarea { resize: vertical; }
   .theme-btn { flex: none; }
   .nav-reset { margin-top: 0; margin-left: auto; }
   .panel { padding: 22px 18px 60px; }
-  .alloc-row { grid-template-columns: 1fr; gap: 8px; }
-  .alloc-head { display: none; }
+  .depth-head { grid-template-columns: 1fr; gap: 8px; }
+  .group-grid { grid-template-columns: 1fr; }
+  .dive-signals { grid-template-columns: 1fr; }
+  .fit-row { grid-template-columns: 1fr; }
+  .fit-actions { justify-content: flex-start; }
+  .depth-legend dl { grid-template-columns: 1fr; }
   .summary dl { grid-template-columns: 1fr; gap: 2px; }
   .summary dd { margin-bottom: 10px; }
 }

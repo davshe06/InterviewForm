@@ -169,12 +169,12 @@ const DOCX_STYLES =
 
 /* sections: [{ title, lines: [{ label, value, href? }] }] — lines with an
    href become real clickable hyperlinks in the document. */
-function buildJobOrderDocx(title, dateStr, sections) {
+function buildInterviewDocx(title, dateStr, sections) {
   const links = [];   /* hrefs in rId order; rels start at rId2 */
   const linkRid = href => { links.push(href); return "rId" + (links.length + 1); };
 
-  let body = docxHeading("Job Order: " + title, "Title");
-  body += docxSubtle("Intake completed " + dateStr);
+  let body = docxHeading("Candidate Interview: " + title, "Title");
+  body += docxSubtle(dateStr);
 
   if (!sections.length) {
     body += docxLabelValue("Status", "No details captured yet");
