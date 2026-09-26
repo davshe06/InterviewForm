@@ -54,7 +54,7 @@ Load order (index.html): `skills-*.js` → `roles-*.js` → `interview.js` →
 | --- | --- | --- |
 | `skills-shared.js`, `skills-tech.js`, `skills-finance.js`, `skills-digital.js` | `window.SKILLS` | The skill registry (185 skills) |
 | `roles-management.js` (PTS), `roles-tech.js` (TTS), `roles-digital.js` (TTS) | `window.FORMS` | Role catalogs; roles reference skills by id |
-| `interview.js` | `window.INTERVIEW` | Role-independent steps: candidate, history, wants, pay, market (references & other applications), next |
+| `interview.js` | `window.INTERVIEW` | Role-independent sections: candidate, motivation, history, wants, pay, next (screening, references, close), wrapup |
 
 `app.js` is a **generic engine** — it knows nothing about specific roles or
 skills. One interview record (`state`) spans all catalogs; role keys are
@@ -80,15 +80,17 @@ cloud_platforms: {
 }
 ```
 
-The engine appends a **proof point** (`proof_point`, reserved id) to every
-skill's capture questions.
+There is no separate proof point: the specific example behind a rating goes
+in the skill's **Their experience** box (`state.skills[id].details`). Saved
+interviews that still carry a `proof_point` have it moved into `details` on
+load.
 
 ### Roles
 
 ```js
 backend_engineer: {
   label, icon, tagline, about,  // about = plain-language explainer (notes rail)
-  opener,     // the question that opens this role on the depth step
+  opener,     // the question that opens this role on the Skills step
   coach,      // what separates candidates / levels for this role
   certs,      // certification chips offered on the Candidate step
   skills: [skillIds],                     // interview order
@@ -99,7 +101,35 @@ backend_engineer: {
 }
 ```
 
-### Interview steps (`interview.js`)
+### The five steps
+
+The form follows the order a screening call actually runs. `STEPS` in `app.js`
+groups the `interview.js` sections into five steps:
+
+1. **Candidate & Motivation.** Roles to explore (picked from the résumé
+   before the call), then the `candidate` and `motivation` sections: why
+   they're looking, timing, other applications and recruiting firms, and
+   counteroffer risk. These come first so the recruiter knows before the deep
+   dive.
+2. **Career History** (`history`). Position 1 is prefilled from the current
+   title and employer if it hasn't been touched.
+3. **Skills & Deep Dive.** Each skill is rated in one pass. Once it's rated
+   Exposure or above, its row shows years, recency, evidence, interest, their
+   experience, and the skill's deep dive (ask, signals, capture). Tools and AI
+   use come after the skills.
+4. **Wants, Pay & Close** (`wants`, `pay`, `next`). `next` holds screening
+   willingness, references, interview availability, and agreed next steps.
+5. **Role Fit & Wrap-up**, marked "After the call" in the nav. It holds Role
+   Fit, the `wrapup` section (recruiter summary, concerns), then Review &
+   Export. The write-up at the bottom redraws as the recruiter types above it.
+
+**Question ids are unique across all sections.** The validator enforces this.
+It's what lets `migrateInterview()` move a saved answer to whichever section
+owns its question now. When a question is dropped, add it to
+`RETIRED_QUESTIONS` so an old answer lands in the live notes instead of
+vanishing.
+
+### Interview sections (`interview.js`)
 
 Question types: `text`, `textarea`, `number`, `select`, `radio`, `chips`
 (always allows "+ Other…"), `textlist` (N numbered boxes), `group` (N repeated
@@ -127,7 +157,7 @@ Each skill records, in `state.skills[skillId]`:
 | `last` | `"current"` / a year number / `"earlier"` | last hands-on. **Stored as an absolute year**, never "N years ago"; `"current"` is anchored to `state.interviewDate`; `"earlier"` = year not pinned down yet |
 | `evidence` | `example` / `general` / `claimed` | walked me through it / described generally / résumé only |
 | `interest` | `more` / `avoid` | wants more of it / wants to avoid it |
-| `details` | free text | what they actually did with it, in their words. The box appears once a skill is rated Exposure or above and is exported after the rating line |
+| `details` | free text | the specific example behind the rating, in their words. The box appears once a skill is rated Exposure or above and is exported after the rating line. It replaces the old per-skill proof point |
 
 The depth test shown to recruiters: *could they deliver it tomorrow with nobody
 helping?* Definitions live in `DEPTH_LEVELS` in `app.js`.
@@ -138,7 +168,9 @@ this in YYYY. Ask what's changed since then and how quickly they'd get back up
 to speed." Other engine-side prompts: Owned/Led on résumé only, 6+ years of
 Exposure, strong-but-wants-to-avoid, "earlier" without a year, 5+ Owned/Led.
 
-Deep dives show for skills rated Exposure or deeper (Owned/Led open).
+Deep dives open inside the skill's row once it's rated Exposure or deeper.
+Owned/Led dives start open. A dive the recruiter opened or closed keeps that
+state when the row redraws.
 
 ## Role Fit
 
@@ -147,9 +179,17 @@ Hands-on .6, Owned .85, Led 1; stale ×.6; unrated = 0 (coverage matters); a
 skill used by 5+ roles weighs half. With 3+ tools recorded, tool overlap is
 20% — but only for roles whose skills already score above zero (tools adjust a
 score, never create one). Roles show only with a non-zero fit or when explored.
+**Fit is rated 1–5** (Poor, Weak, Possible, Good, Strong fit) with a slider
+on each role row. The computed score only *suggests* a rating:
+`suggestedRating()` maps 0% → 1 and 100% → 5. The slider starts there. When the
+recruiter drags it, their rating is saved in `state.fit.ratings[roleKey]`,
+and "Use suggested" clears it. The write-up and the leading-fit card show
+`fitRatingText()` (e.g. "4/5 Good fit"), with "(suggested)" on any role the
+recruiter hasn't rated. Rows stay ordered by the computed score so they don't
+jump while a slider moves. Percentages aren't shown anywhere.
 `roleProfile()` gives "Currently / Was marketable as"; `suggestedLevel()`
 suggests seniority from ratings (ignoring None) and direct reports. "Explore"
-adds a role to the shortlist and jumps to Experience Depth.
+adds a role to the shortlist and jumps to the Skills step.
 
 ## Exports — internal only
 
@@ -229,7 +269,7 @@ the same), then run the validator and browser test.
 - **GitHub Pages:** Settings → Pages → branch `main`, folder `/ (root)`.
 - **AI analysis:** `api/analyze.js` on Vercel with `ANTHROPIC_API_KEY` set
   server-side — the key must never reach the browser. When hosted on Pages, the
-  endpoint URL is pasted into the AI settings on the Review & Export step. The
+  endpoint URL is pasted into the AI settings on the Role Fit & Wrap-up step. The
   prompt assesses a **candidate**: placement read, strengths, gaps and risks,
   probes the recruiter missed, and a candidate summary without pay or contact
   details.

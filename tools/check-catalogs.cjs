@@ -84,10 +84,14 @@ Object.entries(FORMS).forEach(([cat, form]) => {
 });
 Object.keys(SKILLS).forEach(id => { if (!used[id]) bad("skill " + id + ": not used by any role"); });
 
-/* role-independent interview steps */
-Object.entries(IV.steps).forEach(([key, step]) => {
-  checkQuestions("interview." + key, step.questions);
-  step.questions.forEach(q => {
+/* role-independent interview sections — question ids unique across all of
+   them, so a saved answer can follow its question between sections */
+const homes = {};
+Object.entries(IV.sections).forEach(([key, sec]) => {
+  checkQuestions("interview." + key, sec.questions);
+  sec.questions.forEach(q => {
+    if (homes[q.id]) bad("interview." + key + "/" + q.id + ": id also used in section " + homes[q.id]);
+    homes[q.id] = key;
     if (q.optionsFrom && !["certs", "environments", "metrics", "teammates"].includes(q.optionsFrom))
       bad("interview." + key + "/" + q.id + ": unknown optionsFrom " + q.optionsFrom);
   });
@@ -99,4 +103,4 @@ if (problems.length) {
   process.exit(1);
 }
 console.log("OK — " + Object.keys(SKILLS).length + " skills, " + roleCount + " roles, " +
-  Object.keys(IV.steps).length + " interview steps.");
+  Object.keys(IV.sections).length + " interview sections.");

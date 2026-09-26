@@ -1,7 +1,9 @@
-/* Role-independent interview steps — the questions every candidate gets,
-   whichever roles they're being assessed against. app.js renders them; the
-   role-specific depth, deep-dive, and fit steps come from the skill and role
-   catalogs.
+/* Role-independent interview sections — the questions every candidate gets,
+   whichever roles they're being assessed against. app.js groups them into the
+   five steps of the call (STEPS in app.js); the role-specific skills and fit
+   content comes from the skill and role catalogs. Question ids are unique
+   across all sections, which is what lets a saved interview follow a question
+   when it moves between sections.
 
    Question types: text, textarea, number, select, radio, chips (always allows
    "+ Other…"), textlist (N numbered boxes), group (N repeated mini-forms —
@@ -27,17 +29,18 @@ window.INTERVIEW = {
 
   levels: ["Entry / junior", "Mid-level", "Senior", "Lead / principal", "Manager", "Director / executive"],
 
-  steps: {
+  sections: {
 
     candidate: {
       title: "Candidate",
-      subtitle: "Who they are and how to reach them. Paste the résumé in the notes rail before the call.",
-      coach: "Open by telling them what the call covers: their background, a skills deep dive, what they want next, pay, and availability.",
+      subtitle: "Who they are and how to reach them.",
+      coach: "Open by telling them what the call covers: why they're looking, their background, a skills deep dive, what they want next, pay, and availability.",
       questions: [
         { id: "full_name", type: "text", label: "Full name", placeholder: "First Last" },
         { id: "email", type: "text", label: "Email", placeholder: "name@example.com" },
         { id: "phone", type: "text", label: "Phone", placeholder: "(555) 555-5555" },
-        { id: "linkedin", type: "text", label: "LinkedIn / portfolio", placeholder: "linkedin.com/in/…", link: true },
+        { id: "linkedin", type: "text", label: "LinkedIn", placeholder: "linkedin.com/in/…", link: true },
+        { id: "samples", type: "text", label: "Portfolio / GitHub / work samples", placeholder: "Link", link: true },
         { id: "location", type: "text", label: "Where they live", placeholder: "City, state" },
         { id: "current_title", type: "text", label: "Current / most recent title", placeholder: "e.g., Senior Accountant" },
         { id: "current_employer", type: "text", label: "Current / most recent employer", placeholder: "Company" },
@@ -63,6 +66,39 @@ window.INTERVIEW = {
           text: "Between roles — ask what they've been doing since, and whether they're interviewing elsewhere." },
         { when: a => a.sponsorship === "Yes",
           text: "Needs sponsorship — confirm the visa type and timeline before submitting anywhere." }
+      ]
+    },
+
+    motivation: {
+      title: "Why They're Looking",
+      subtitle: "Motivation, timing, and where else they're in play — before you spend time on the deep dive.",
+      coach: "Ask “why now?” early. The reason they're looking predicts what they'll accept, and other interviews set your timeline.",
+      questions: [
+        { id: "why_looking", type: "textarea", label: "Why are they looking? What would make them move?",
+          placeholder: "In their words" },
+        { id: "looking_since", type: "select", label: "How long have they been looking?",
+          options: ["Just started", "1–3 months", "3–6 months", "6+ months"] },
+        { id: "timeline", type: "select", label: "How soon could they move?",
+          options: ["Immediately", "2 weeks' notice", "3–4 weeks", "1–2 months", "Just exploring"] },
+        { id: "applications", type: "group", count: 4, label: "Other roles they've applied to", itemLabel: "Application",
+          fields: [
+            { id: "company", label: "Company", placeholder: "Company", head: true },
+            { id: "role", label: "Role", placeholder: "Title", head: true },
+            { id: "stage", label: "Stage", type: "radio", options: ["Applied", "Interviewing", "Final round", "Offer"] },
+            { id: "via_firm", label: "Through a recruiting firm?", type: "radio", options: ["Yes", "No"] },
+            { id: "firm", label: "Recruiting firm", placeholder: "Firm name", showIf: item => item.via_firm === "Yes" }
+          ] },
+        { id: "counteroffer", type: "radio", label: "Counteroffer risk", options: ["Low", "Medium", "High"] }
+      ],
+      tips: [
+        { when: a => a.timeline === "Just exploring",
+          text: "Just exploring — find the trigger that would make them move, and when you should check back." },
+        { when: a => (a.applications || []).some(x => x && x.via_firm === "Yes"),
+          text: "They're working with another recruiting firm — confirm which companies that firm has already submitted them to, so they aren't submitted to the same client twice." },
+        { when: a => (a.applications || []).some(x => x && (x.stage === "Final round" || x.stage === "Offer")),
+          text: "A final round or offer is in play — get the date they have to decide, and move faster than it." },
+        { when: a => a.counteroffer === "High",
+          text: "High counteroffer risk — ask now: “If your company matched, would you stay?” and note the answer." }
       ]
     },
 
@@ -108,14 +144,10 @@ window.INTERVIEW = {
     },
 
     wants: {
-      title: "What They Want",
-      subtitle: "Motivation, direction, and dealbreakers — the things that decide whether a placement sticks.",
-      coach: "Ask “why now?” before “what next?” The reason they're looking predicts what they'll accept.",
+      title: "What They Want Next",
+      subtitle: "Direction and dealbreakers — the things that decide whether a placement sticks.",
+      coach: "Tie it back to why they're looking: what would the next role need to fix?",
       questions: [
-        { id: "why_looking", type: "textarea", label: "Why are they looking? What would make them move?",
-          placeholder: "In their words" },
-        { id: "looking_since", type: "select", label: "How long have they been looking?",
-          options: ["Just started", "1–3 months", "3–6 months", "6+ months"] },
         { id: "top3", type: "textlist", count: 3, label: "Top 3 things they want in their next role",
           placeholder: "One per line, most important first" },
         { id: "target_titles", type: "text", label: "Titles they're targeting", placeholder: "e.g., Assistant Controller, Controller" },
@@ -123,23 +155,19 @@ window.INTERVIEW = {
         { id: "engagement", type: "chips", label: "Open to",
           options: ["Contract / consulting", "Contract-to-hire", "Direct hire (Perm)", "FTEP", "Project-based (SOW)"] },
         { id: "avoid", type: "text", label: "Industries or company types to avoid", placeholder: "e.g., early-stage startups" },
-        { id: "non_negotiables", type: "textarea", label: "Dealbreakers", placeholder: "Commute, travel, on-call, tools, culture…" },
-        { id: "timeline", type: "select", label: "How soon could they move?",
-          options: ["Immediately", "2 weeks' notice", "3–4 weeks", "1–2 months", "Just exploring"] }
+        { id: "non_negotiables", type: "textarea", label: "Dealbreakers", placeholder: "Commute, travel, on-call, tools, culture…" }
       ],
       tips: [
         { when: (a, s) => a.target_level && s.common.history.operating_level && a.target_level !== s.common.history.operating_level,
           text: "They want to change how they operate — ask what they've already done that proves they're ready for it." },
         { when: a => (a.engagement || []).length > 0 && !(a.engagement || []).includes("Direct hire (Perm)"),
-          text: "Ask whether they'd consider Direct hire (Perm) and FTEP as well." },
-        { when: a => a.timeline === "Just exploring",
-          text: "Just exploring — find the trigger that would make them move, and when you should check back." }
+          text: "Ask whether they'd consider Direct hire (Perm) and FTEP as well." }
       ]
     },
 
     pay: {
-      title: "Pay, Location & Availability",
-      subtitle: "What they need to earn, how they'd be paid, and where and when they can work.",
+      title: "Pay & Logistics",
+      subtitle: "What they need to earn, how they'd be paid, and where they can work.",
       coach: "Ask for their ideal range and their bottom end — the number below which they'd walk away. Don't ask what they earn today.",
       questions: [
         { id: "pay_type", type: "radio", label: "Pay type", options: ["W2", "IC (1099)", "C2C"] },
@@ -165,7 +193,6 @@ window.INTERVIEW = {
         { id: "relocate", type: "radio", label: "Open to relocating?", options: ["Yes", "Maybe", "No"] },
         { id: "travel", type: "select", label: "Travel they'll accept", options: ["None", "Up to 10%", "Up to 25%", "Up to 50%", "50%+"] },
         { id: "timezone", type: "text", label: "Time-zone or hours limits", placeholder: "e.g., US Central, no evenings" },
-        { id: "earliest_start", type: "text", label: "Earliest start / notice period", placeholder: "e.g., 2 weeks from offer" },
         { id: "assignment_length", type: "text", label: "Preferred assignment length", placeholder: "e.g., 6+ months" },
         { id: "busy_season", type: "radio", label: "OK with close / busy-season hours?", options: ["Yes", "Some", "No"],
           showIf: (a, s) => exploring(s, "management") }
@@ -180,11 +207,19 @@ window.INTERVIEW = {
       ]
     },
 
-    market: {
-      title: "References & Other Applications",
-      subtitle: "Who can vouch for them, and where else they're in play — including through other recruiting firms.",
-      coach: "Ask: “Where else have you applied or interviewed, and did any of those come through a recruiter?” It sets your timeline and keeps you from submitting them somewhere another firm already has.",
+    next: {
+      title: "Screening, References & Next Steps",
+      subtitle: "Willingness for the usual screening steps, who can vouch for them, and what happens next.",
+      coach: "Before you hang up: lock their interview availability and agree on next steps.",
+      availability: true,
       questions: [
+        { id: "working_interview", type: "radio", label: "Open to a working interview?", options: ["Yes", "Maybe", "No"] },
+        { id: "assessment", type: "radio", label: "Willing to do an assessment or take-home?",
+          options: ["Yes", "Depends on length", "No"] },
+        { id: "background_check", type: "radio", label: "Willing to complete a background check?",
+          options: ["Yes", "Has questions", "No"] },
+        { id: "drug_screen", type: "radio", label: "Willing to complete a drug screen?", options: ["Yes", "Has questions", "No"] },
+        { id: "computer", type: "radio", label: "Has a suitable computer if the assignment needs one?", options: ["Yes", "No"] },
         { id: "references", type: "group", count: 3, label: "References", itemLabel: "Reference",
           fields: [
             { id: "name", label: "Name", placeholder: "Full name", head: true },
@@ -194,49 +229,22 @@ window.INTERVIEW = {
             { id: "email", label: "Email", placeholder: "name@example.com" },
             { id: "contact_ok", label: "OK to contact now?", type: "radio", options: ["Yes", "Not yet"] }
           ] },
-        { id: "applications", type: "group", count: 4, label: "Other roles they've applied to", itemLabel: "Application",
-          fields: [
-            { id: "company", label: "Company", placeholder: "Company", head: true },
-            { id: "role", label: "Role", placeholder: "Title", head: true },
-            { id: "stage", label: "Stage", type: "radio", options: ["Applied", "Interviewing", "Final round", "Offer"] },
-            { id: "via_firm", label: "Through a recruiting firm?", type: "radio", options: ["Yes", "No"] },
-            { id: "firm", label: "Recruiting firm", placeholder: "Firm name", showIf: item => item.via_firm === "Yes" }
-          ] }
+        { id: "next_steps", type: "textarea", label: "Agreed next steps", placeholder: "What you'll do, what they'll do, and when" }
       ],
       tips: [
-        { when: a => (a.applications || []).some(x => x && x.via_firm === "Yes"),
-          text: "They're working with another recruiting firm — confirm which companies that firm has already submitted them to, so they aren't submitted to the same client twice." },
-        { when: a => (a.applications || []).some(x => x && (x.stage === "Final round" || x.stage === "Offer")),
-          text: "A final round or offer is in play — get the date they have to decide, and move faster than it." },
+        { when: a => a.background_check === "Has questions" || a.drug_screen === "Has questions",
+          text: "They have questions about screening — explain the process, and bring in your manager if anything needs a decision." },
         { when: a => (a.references || []).some(r => r && r.contact_ok === "Not yet"),
           text: "Some references aren't cleared to contact yet — agree on when you can reach out." }
       ]
     },
 
-    next: {
-      title: "Screening & Next Steps",
-      subtitle: "Willingness for the usual screening steps, and what happens next.",
-      coach: "Before you hang up: lock their interview availability and agree on next steps.",
-      availability: true,
+    wrapup: {
+      title: "Your Read",
+      subtitle: "After the call, while it's fresh.",
       questions: [
-        { id: "working_interview", type: "radio", label: "Open to a working interview?", options: ["Yes", "Maybe", "No"] },
-        { id: "assessment", type: "radio", label: "Willing to do an assessment or take-home?",
-          options: ["Yes", "Depends on length", "No"] },
-        { id: "samples", type: "text", label: "Work samples / portfolio / GitHub", placeholder: "Links", link: true },
-        { id: "background_check", type: "radio", label: "Willing to complete a background check?",
-          options: ["Yes", "Has questions", "No"] },
-        { id: "drug_screen", type: "radio", label: "Willing to complete a drug screen?", options: ["Yes", "Has questions", "No"] },
-        { id: "computer", type: "radio", label: "Has a suitable computer if the assignment needs one?", options: ["Yes", "No"] },
-        { id: "counteroffer", type: "radio", label: "Counteroffer risk", options: ["Low", "Medium", "High"] },
-        { id: "concerns", type: "textarea", label: "Concerns / red flags", placeholder: "Anything that gave you pause" },
         { id: "summary", type: "textarea", label: "Recruiter summary", placeholder: "Your read on this candidate in 3–4 sentences" },
-        { id: "next_steps", type: "textarea", label: "Agreed next steps", placeholder: "What you'll do, what they'll do, and when" }
-      ],
-      tips: [
-        { when: a => a.counteroffer === "High",
-          text: "High counteroffer risk — ask now: “If your company matched, would you stay?” and note the answer." },
-        { when: a => a.background_check === "Has questions" || a.drug_screen === "Has questions",
-          text: "They have questions about screening — explain the process, and bring in your manager if anything needs a decision." }
+        { id: "concerns", type: "textarea", label: "Concerns / red flags", placeholder: "Anything that gave you pause" }
       ]
     }
   }
