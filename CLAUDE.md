@@ -3,93 +3,43 @@
 ## What this is
 
 A **recruiter-side candidate interview form**. A recruiter works it live while
-interviewing a candidate, capturing what the candidate has actually done, what
-they want, and whether they're placeable — then exports an internal write-up and
-a client-safe submittal profile.
+screening a candidate: walking the résumé, rating each skill by depth and
+recency, running a scripted technical deep dive, and capturing what they want,
+their pay, and their availability. **Role Fit** then scores the candidate
+against every role to decide *what kind of role to place them in*. Exports are
+an internal write-up.
 
-## Where the code came from, and the one idea that matters
+## Where the code came from
 
-This repo is a **verbatim fork of [RHJOForm](https://github.com/davshe06/RHJOForm)**,
-a *client-side job order intake* app. Nothing has been reframed yet — the code
-here still asks client-intake questions. That reframing is the work.
+A fork of [RHJOForm](https://github.com/davshe06/RHJOForm), a *client-side job
+order intake* app. The reframe is done: the source captured **requirements
+from a client**; this app captures **evidence from a candidate**. The 36-role
+taxonomy came from RHJOForm; every question, tip, and step has been rebuilt for
+interviewing.
 
-**The reframe is an inversion, not a trim.** The source app captures
-**requirements from a client**. This app captures **evidence from a candidate**.
-
-The payoff: the **role taxonomy is already correct and fully reusable.** All 36
-roles, their focus areas, their deep-dive question sets, and their tool option
-lists are the right skill vocabulary for interviewing. What changes is what gets
-recorded about each area and how each question is phrased.
-
-| Source (client intake) | Here (candidate interview) |
-| --- | --- |
-| "Which cloud do you need?" | "Which clouds have you worked in, and what did you own?" |
-| Focus area = must-have / nice-to-have / % of time | Focus area = depth + years + **recency** |
-| Tip: "screen for X" | Tip: "probe for X" / "red flag if they can't explain Y" |
-| Top 3 things the candidate must have | Top 3 things **the candidate wants** |
-| Client's budget / bill rate | Candidate's pay: ideal range + bottom end, hourly and salary, W2 / IC / C2C |
-
-**Recency has no equivalent in the source app and matters enormously for
-placement** — "expert, but last touched it four years ago" is a different
-candidate. Build it in rather than bolting it on.
+**Recency matters as much as depth** — "expert, but last touched it four years
+ago" is a different candidate. It's built into the depth model and into fit.
 
 ## Decisions so far (agreed with the owner)
 
-- **Pilot: all three catalogs** (Management Resources, Tech, Digital) — all 36
-  roles.
+- **All three catalogs** (Management Resources, Tech, Digital) — all 36 roles.
 - **General skills interview**, not tied to a specific job order (bench / MPC).
-- **Exports are internal only for now.** Candidate name, LinkedIn, contact info
-  and current employer all stay in. No client submittal yet (see below).
-- **Pay** (not built yet): one rate range — **ideal** and **bottom end** — with
-  a pay-type selector (**W2 / IC / C2C**), captured as both **hourly and
-  salary**. Choosing C2C reveals the candidate's company details: company name,
-  owner vs. third-party vendor, contact name / email / phone, city/state. No
-  EIN or insurance details (onboarding collects those). Current pay is not
-  asked.
+  The interview *determines* the role; the recruiter shortlists roles the
+  résumé points to, and Role Fit ranks every role.
+- **Exports are internal only.** Candidate name, LinkedIn, contact info and
+  current employer all stay in. No client submittal yet (see Exports).
+- **Pay:** one pay-type selector (**W2 / IC / C2C**) with an **ideal range and
+  a bottom end**, captured as both **hourly and salary**. C2C reveals the
+  candidate's company details: name, owner vs. third-party vendor, contact
+  name / email / phone, city/state. No EIN or insurance details (onboarding
+  collects those). **Current pay is not asked.**
+- **Work authorization** uses the two lawful questions only ("authorized to
+  work in the US?", "require sponsorship now or in future?") — never
+  citizenship. Background check / drug screen are **willingness only**.
 - **No placeability scale.**
+- **Stale-skill reminder:** yes — 3 years for fast-moving skills, 5 for slow.
 
-## Experience Depth — the model (built)
-
-Each focus area records, in `state.roles[id].areas[areaId]`:
-
-| Field | Values | Meaning |
-| --- | --- | --- |
-| `depth` | unset / `none` / `exposure` / `hands_on` / `owned` / `led` | unset = never discussed; `none` = asked, no real experience (a known gap) |
-| `years` | `<1` / `1–2` / `3–5` / `6–9` / `10+` | cumulative years actually doing it |
-| `last` | `"current"` / a year number / `"earlier"` | last hands-on. **Stored as an absolute year**, never "N years ago", so a record reopened months later still reads right; `"current"` is anchored to `state.interviewDate`. `"earlier"` means the year isn't pinned down yet. |
-| `evidence` | `example` / `general` / `claimed` | walked me through it / described generally / résumé only |
-| `interest` | `more` / `avoid` | wants more of it / wants to avoid it |
-
-The depth test shown to recruiters: *could they deliver it tomorrow with nobody
-helping?* Definitions live in `DEPTH_LEVELS` in `app.js`.
-
-**Stale skills.** A Hands-on-or-deeper area whose last hands-on year is
-`STALE_YEARS[formId]` or more years ago (Management 5, Tech 3, Digital 3) shows
-"Last did this in YYYY. Ask what's changed since then and how quickly they'd
-get back up to speed." Other engine-side prompts: Owned/Led on résumé only,
-6+ years of Exposure, strong-but-wants-to-avoid, "earlier" without a year,
-5+ Owned/Led areas. These live in the engine, so they cover every role.
-
-**Placement profile** reuses each role's `profileRules[].must`, matched against
-Owned/Led areas — fresh first ("Currently marketable as"), then counting stale
-ones ("Was marketable as … (stale)"). The rules' `detail` text is written for
-client intake and is not shown.
-
-**Deep dives** show for areas rated Exposure or deeper (Owned/Led open), and
-every one ends with an engine-added **proof point** (`proof_point`). The
-catalogs' deep-dive **tips are hidden**: they coach a client intake and stay
-hidden until the interview overlay rewrites them as probes.
-
-`areaPriority(state, id)` is kept as a shim for the catalog tips that call it:
-Owned/Led → `"must"`, Exposure/Hands-on → `"nice"`, else `"skip"`.
-
-## Sibling repos — do not modify them
-
-- **RHJOForm** — the full client intake app. The source of this fork.
-- **TDCJOchecklist** — a condensed checklist variant of the client intake. Not
-  relevant here; interviews need depth, not brevity.
-
-## Architecture (inherited, unchanged)
+## Architecture
 
 Vanilla JS, vanilla CSS, **no build step, no dependencies, no framework**. Open
 `index.html` directly or `python3 -m http.server 8000`. The only dependency
@@ -97,85 +47,116 @@ anywhere is `@anthropic-ai/sdk` inside the Vercel function. Keep it that way
 unless asked — a recruiter can open a file and it works, and it deploys to
 GitHub Pages as static files.
 
-`app.js` is a **generic render engine**. It knows nothing about specific roles;
-it renders whatever the catalogs register. Role knowledge lives entirely in data.
+Load order (index.html): `skills-*.js` → `roles-*.js` → `interview.js` →
+`docx.js` → `app.js`. Every data file is an IIFE registering into a global:
 
-Each `roles-*.js` is an IIFE registering into `window.FORMS`:
+| File | Registers | What it holds |
+| --- | --- | --- |
+| `skills-shared.js`, `skills-tech.js`, `skills-finance.js`, `skills-digital.js` | `window.SKILLS` | The skill registry (185 skills) |
+| `roles-management.js` (PTS), `roles-tech.js` (TTS), `roles-digital.js` (TTS) | `window.FORMS` | Role catalogs; roles reference skills by id |
+| `interview.js` | `window.INTERVIEW` | Role-independent steps: candidate, history, wants, pay, next |
 
-```js
-window.FORMS.management = {
-  id: "management",
-  label: "Management Resources",
-  business: "pts",                // which business tab hosts it (pts | tts)
-  stackLabel: "Systems & Skills", // optional: overrides the "Tech Stack" step label
-  brand: APP_BRAND,
-  common: COMMON,                 // basics / logistics / team / closing steps
-  roles: ROLES,                   // role configs keyed by id
-  roleOrder: ROLE_ORDER           // display order in the picker
-};
-```
+`app.js` is a **generic engine** — it knows nothing about specific roles or
+skills. One interview record (`state`) spans all catalogs; role keys are
+`"catalog:role"`. The PTS/TTS toggle only filters the role picker; the accent
+follows the primary role's catalog (else the first role explored).
 
-The IIFE wrapper matters: every catalog declares top-level `COMMON`, `ROLES`,
-`ROLE_ORDER`, so without it they collide.
+### Skills — the shared vocabulary
 
-Catalogs: `roles-management.js` (14 finance/accounting roles, PTS),
-`roles-tech.js` (13 roles, TTS), `roles-digital.js` (9 roles, TTS) — 36 total.
-Two-level nav: business selector (PTS / TTS) → form toggle (shown only when a
-business hosts more than one form). Each form keeps a fully independent record
-in the store; `state` is a live pointer to the active one, which is why the rest
-of the engine needs no awareness of forms.
-
-### A role config
+A skill that means the same thing across roles is **one skill**, shared by id
+(e.g. `cloud_platforms` is on Backend, Full-Stack, Data Engineer, DevOps, and
+Cloud Architect). Shared ids are what let Role Fit surface roles the recruiter
+didn't shortlist — keep new skills shared where they genuinely overlap.
 
 ```js
-role_id: {
-  label, icon, tagline,
-  about,        // 2–3 sentence plain-language explainer, shown in the notes rail
-                // (still valuable here — helps recruiters new to a skill area)
-  blurb,        // coaching note on the Focus Areas step
-  timePrompt,   // the "top 3 things" question
-  focusAreas: [{ id, label, icon, deepDive: { intro, questions, tips } }],
-  specialists:  [{ label, overlapsArea }],   // overlapsArea must be a focusArea id
-  profileRules: [{ must: [focusAreaIds], profile, detail }],
-  stackCategories: [{ id, label, placeholder, options }],
-  aiUseCases, aiTools, metrics, backgrounds
+cloud_platforms: {
+  label, icon,
+  decay: "fast",          // "fast" → stale after 3 years; "slow" → 5
+  what: "…",              // one plain-language line for non-specialist recruiters
+  ask: ["…", "…"],        // questions to put to the candidate, in order
+  listen: "…",            // what a strong answer includes
+  red: "…",               // red flags
+  capture: [ questions ]  // structured fields, past tense — what they did
 }
 ```
 
+The engine appends a **proof point** (`proof_point`, reserved id) to every
+skill's capture questions.
+
+### Roles
+
+```js
+backend_engineer: {
+  label, icon, tagline, about,  // about = plain-language explainer (notes rail)
+  opener,     // the question that opens this role on the depth step
+  coach,      // what separates candidates / levels for this role
+  certs,      // certification chips offered on the Candidate step
+  skills: [skillIds],                     // interview order
+  profiles: [{ skills: [ids], profile }], // owned/led recently ⇒ "marketable as"
+  teammates: [{ label, skill? }],         // specialist overlapping an owned skill ⇒ probe
+  tools: [{ id, label, options }],        // tools used hands-on (also feeds fit)
+  aiUse, aiTools, metrics, environments   // chip options
+}
+```
+
+### Interview steps (`interview.js`)
+
 Question types: `text`, `textarea`, `number`, `select`, `radio`, `chips`
-(multi-select, always allows custom "+ Other…"), `textlist` (N numbered
-short-answer boxes). Conditional display via `showIf(answers, state)`. Tips via
-`when(answers, state)`; `areaPriority(state, id)` maps a focus area's depth onto
-the old must / nice / skip priority (see Experience Depth above).
+(always allows "+ Other…"), `textlist` (N numbered boxes), `group` (N repeated
+mini-forms — career positions), `payrange` (ideal low–high + bottom end).
+`optionsFrom: "certs" | "environments" | "metrics" | "teammates"` pulls chip
+options from the shortlisted roles. `link: true` exports as a hyperlink.
+`showIf(answers, state)` and tips' `when(answers, state)` as usual;
+`exploring(state, catalogId)` gates catalog-specific questions (e.g. MR
+capability pillars, Tech clearance).
 
-### Reusable machinery worth keeping
+## Experience Depth — the model
 
-- **Notes rail** — paste-ahead box + live notes. Maps perfectly: paste the
-  résumé ahead of the call, take live notes during it.
-- **"Close To The Next Steps" scheduler** — date + two-day/two-window time
-  pickers. Maps directly onto capturing the candidate's interview availability.
-- **Background check / drug screen / equipment questions** — already the right
-  questions, just asked of the candidate ("are you willing to…") instead of
-  the client.
-- **Role explainer card**, theming, business selector, `textlist` — all reusable.
+Each skill records, in `state.skills[skillId]`:
 
-## Exports — internal only for now
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `depth` | unset / `none` / `exposure` / `hands_on` / `owned` / `led` | unset = never discussed; `none` = asked, no real experience (a known gap) |
+| `years` | `<1` / `1–2` / `3–5` / `6–9` / `10+` | cumulative years actually doing it |
+| `last` | `"current"` / a year number / `"earlier"` | last hands-on. **Stored as an absolute year**, never "N years ago"; `"current"` is anchored to `state.interviewDate`; `"earlier"` = year not pinned down yet |
+| `evidence` | `example` / `general` / `claimed` | walked me through it / described generally / résumé only |
+| `interest` | `more` / `avoid` | wants more of it / wants to avoid it |
+
+The depth test shown to recruiters: *could they deliver it tomorrow with nobody
+helping?* Definitions live in `DEPTH_LEVELS` in `app.js`.
+
+**Stale skills:** a Hands-on-or-deeper skill whose last hands-on year is
+`STALE_YEARS[skill.decay]` or more years ago (fast 3, slow 5) shows "Last did
+this in YYYY. Ask what's changed since then and how quickly they'd get back up
+to speed." Other engine-side prompts: Owned/Led on résumé only, 6+ years of
+Exposure, strong-but-wants-to-avoid, "earlier" without a year, 5+ Owned/Led.
+
+Deep dives show for skills rated Exposure or deeper (Owned/Led open).
+
+## Role Fit
+
+`roleFit()` scores **every** role on its own skills: None 0, Exposure .25,
+Hands-on .6, Owned .85, Led 1; stale ×.6; unrated = 0 (coverage matters); a
+skill used by 5+ roles weighs half. With 3+ tools recorded, tool overlap is
+20% — but only for roles whose skills already score above zero (tools adjust a
+score, never create one). Roles show only with a non-zero fit or when explored.
+`roleProfile()` gives "Currently / Was marketable as"; `suggestedLevel()`
+suggests seniority from ratings (ignoring None) and direct reports. "Explore"
+adds a role to the shortlist and jumps to Experience Depth.
+
+## Exports — internal only
 
 All exports are internal recruiter write-ups and carry everything captured.
-The source app's "Candidate PDF" (and its `CANDIDATE_EXCLUDE_*` lists) has been
-removed: an unaudited "safe to share" export is worse than none.
+Four export paths stay in sync because they all read `collectSummary()`:
+on-screen summary, markdown copy, Word (`docx.js`), and print/PDF.
 
-Four export paths must stay in sync when questions change: on-screen summary,
-markdown copy, Word (`docx.js`), and print/PDF. All four read `collectSummary()`,
-so changing that one function keeps them aligned.
-
-**If a client submittal is built later**, the logic inverts from the source
-app, and it must **fail closed**: every field opts in to the client export
-(anything unmarked stays internal), a pre-export scan blocks any private value
-(pay normalized to digits, email, phone, C2C company details) found anywhere in
-the rendered output, and a browser test fills the private fields with sentinel
-values and asserts none appear in the markdown, print HTML, or Word XML.
-Getting this wrong leaks a candidate's pay to a hiring manager.
+**If a client submittal is built later**, it must **fail closed**: every field
+opts in to the client export (anything unmarked stays internal), a pre-export
+scan blocks any private value (pay normalized to digits, email, phone, C2C
+company details) found anywhere in the rendered output, and a browser test
+fills the private fields with sentinel values and asserts none appear in the
+markdown, print HTML, or Word XML. Getting this wrong leaks a candidate's pay
+to a hiring manager.
 
 ## Conventions
 
@@ -183,34 +164,43 @@ Getting this wrong leaks a candidate's pay to a hiring manager.
 **Bump `N` on every deploy** — GitHub Pages sits behind a CDN and browsers cache
 JS hard. This has bitten this codebase before.
 
-**Storage keys are namespaced `rh-interview-*`.** RHJOForm, TDCJOchecklist and
-this app are all served from `davshe06.github.io`, and `localStorage` is
-per-**origin**, not per-path. Never revert these to a sibling's keys or the apps
-will overwrite each other's saved data.
+**Storage keys are namespaced `rh-interview-*`** (record: `rh-interview-v2`).
+RHJOForm, TDCJOchecklist and this app are all served from `davshe06.github.io`,
+and `localStorage` is per-**origin**, not per-path. Never revert these to a
+sibling's keys or the apps will overwrite each other's saved data.
 
-**Verify in a real browser before committing.** Playwright is at
-`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`; drive `file://` against
-`index.html`, assert behavior, and check `pageerror` + console errors are empty.
-Syntax checks alone have missed real bugs here.
+**Validate catalogs after editing them:** `node tools/check-catalogs.cjs` —
+checks every role's skills, profiles, and teammates resolve; skill shape;
+question types; and that no skill is orphaned. (`.cjs` because `package.json`
+is `"type": "module"` for the Vercel function.)
 
-**Validate catalogs after editing them** — every `profileRule.must` entry and
-every `specialist.overlapsArea` must be a real `focusArea` id in that role.
+**Verify in a real browser before committing:** `node tools/browser-test.cjs`
+drives `file://index.html` in Chromium
+(`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`) through a full
+interview, every export, all 36 roles, persistence, dark mode, and 390px
+width, and fails on any `pageerror` or console error. Extend it when behavior
+changes. Syntax checks alone have missed real bugs here.
 
 **Theming.** Colors are CSS custom properties. Light lives on bare `:root`; dark
 is duplicated across `@media (prefers-color-scheme: dark)` and
 `:root[data-theme="dark"]`, with `:root[data-theme="light"]` pinning light. The
-active form is stamped on `<html>` as `data-form` and per-business accents key
-off it — Management Resources red (`#ad0019`), Tech/Digital blue (`#2456d6`).
-Never hard-code an accent in a component; use the tokens, including
-`--accent-ring` for focus rings.
+active catalog is stamped on `<html>` as `data-form` and per-business accents
+key off it — Management Resources red (`#ad0019`), Tech/Digital blue
+(`#2456d6`). Never hard-code an accent in a component; use the tokens,
+including `--accent-ring` for focus rings.
 
-## Catalog drift — a known open problem
+## Relationship to the sibling repos — do not modify them
 
-Three repos now each carry ~330KB of near-identical role catalogs, with no build
-step to share them. Decide an approach early rather than on the third divergent
-edit. Current thinking: keep `roles-*.js` **byte-identical** across repos so an
-update is a file copy, and put all interview-specific framing in the engine plus
-a separate overlay file. Revisit if that proves awkward.
+- **RHJOForm** — the client intake app this was forked from.
+- **TDCJOchecklist** — a condensed checklist variant of the client intake.
+
+The role catalogs here are **no longer byte-identical** to RHJOForm's: every
+focus area was mapped onto the shared skill registry and all wording rewritten
+for interviews, so an overlay would have been as large as the catalog. What
+still lines up with RHJOForm is the role list (ids, labels, `about`, tool
+option lists). When RHJOForm adds or changes a role, port it by hand: add the
+role here with its skills (reusing existing skill ids wherever the skill is
+the same), then run the validator and browser test.
 
 ## Deployment
 
@@ -218,9 +208,9 @@ a separate overlay file. Revisit if that proves awkward.
 - **AI analysis:** `api/analyze.js` on Vercel with `ANTHROPIC_API_KEY` set
   server-side — the key must never reach the browser. When hosted on Pages, the
   endpoint URL is pasted into the AI settings on the Review & Export step. The
-  prompt in that file still analyzes *job orders*; it needs rewriting to assess
-  a **candidate** (marketability, gaps, probes the recruiter missed, a draft
-  submittal summary).
+  prompt assesses a **candidate**: placement read, strengths, gaps and risks,
+  probes the recruiter missed, and a candidate summary without pay or contact
+  details.
 
 ## Commit trailer
 

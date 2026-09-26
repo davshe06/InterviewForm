@@ -1,132 +1,95 @@
 /* =========================================================================
-   Digital & Marketing Job Order Intake — render engine + role-aware state
+   Candidate Interview — render engine
    ---------------------------------------------------------------------------
-   Step 1 picks a role. The role drives focus areas, deep dives, tech-stack
-   categories, success metrics, candidate backgrounds, and the targeting
-   profile. Config lives in roles.js; this engine is generic.
+   One interview record per candidate. The recruiter shortlists the roles the
+   résumé points to; their skills (skills-*.js) drive Experience Depth and the
+   Technical Deep Dive; Role Fit then scores every role in every catalog
+   against the ratings, so the interview decides the placement, not the
+   shortlist. Role-independent steps come from interview.js. This file knows
+   nothing about specific roles or skills.
    ========================================================================= */
 
-const STORAGE_KEY = "rh-interview-v1";
+const STORAGE_KEY = "rh-interview-v2";
 
-/* ---------- state ----------
-   common: role-agnostic step answers (shared across roles)
-   roles[roleId]: { stack, success, areas, deepDives } — namespaced per role
-   so switching roles never clobbers another role's answers. */
-
-/* ---------- business + form registry ----------
-   FORMS is populated by the roles-*.js catalogs, each tagged with the line of
-   business it belongs to. Businesses are the top-level selector (PTS / TTS);
-   each hosts one or more forms. The store keeps a fully independent job order
-   per form; `state` is a live pointer to the active form's job order, so the
-   rest of the engine is unchanged. */
+/* ---------- businesses, catalogs, roles ----------
+   FORMS (roles-*.js) holds the three role catalogs, each tagged with its line
+   of business. The business toggle filters the role picker and sets the
+   accent; the interview itself spans catalogs. Role keys are "catalog:role". */
 
 const BUSINESSES = {
   pts: { id: "pts", label: "PTS", full: "Project & Talent Solutions" },
   tts: { id: "tts", label: "TTS", full: "Technology & Transformation Solutions" }
 };
 const BUSINESS_ORDER = ["pts", "tts"];
+const IV = window.INTERVIEW;
 
-/* every registered form, in catalog-declaration order */
-function allFormIds() { return Object.keys(FORMS); }
+function catalogsFor(bid) { return Object.keys(FORMS).filter(id => FORMS[id].business === bid); }
 
-/* forms belonging to a business, in declaration order */
-function formsFor(businessId) {
-  return allFormIds().filter(id => FORMS[id].business === businessId);
+function allRoleKeys() {
+  const out = [];
+  Object.keys(FORMS).forEach(cat => FORMS[cat].roleOrder.forEach(rid => out.push(cat + ":" + rid)));
+  return out;
 }
 
-function activeBusiness() { return store.businessId; }
-function activeForm() { return FORMS[store.formId]; }
-
-/* Combined drill-down + tools step. "Tech Stack" reads wrong on a finance job
-   order, so a form can override the label via form.stackLabel. */
-function stackStepLabel() {
-  const f = activeForm();
-  return (f && f.stackLabel) || "Tech Stack";
+function roleByKey(key) {
+  if (!key) return null;
+  const [cat, rid] = key.split(":");
+  const role = FORMS[cat] && FORMS[cat].roles[rid];
+  return role ? { key, cat, rid, role } : null;
 }
 
-function blankJobOrder() {
+function shortlistRoles() { return state.shortlist.map(roleByKey).filter(Boolean); }
+
+/* true when a shortlisted (or chosen primary) role comes from this catalog —
+   used by interview.js for catalog-specific questions */
+function exploring(s, cat) {
+  const keys = (s.shortlist || []).concat(s.fit && s.fit.primary ? [s.fit.primary] : []);
+  return keys.some(k => k.split(":")[0] === cat);
+}
+
+/* ---------- state ---------- */
+
+function blankInterview() {
   return {
-    roleId: null,
-    common: { basics: {}, logistics: {}, team: {}, closing: {} },
-    roles: {},
-    notes: { pretext: "", live: "", pretextH: null, liveH: null, railW: null },
+    shortlist: [],
+    common: { candidate: {}, history: {}, wants: {}, pay: {}, next: {} },
+    skills: {},          /* skill id → { depth, years, last, evidence, interest } */
+    dives: {},           /* skill id → deep-dive answers, incl. proof_point */
+    customSkills: [],    /* recruiter-added skills: { id, label } */
+    tools: {},           /* tool category key → chips */
+    ai: {},
+    fit: { primary: null, also: [], level: null, notes: "" },
+    notes: { pretext: "", live: "", pretextH: null, liveH: null },
     aiAnalysis: null,
     interviewDate: null
   };
 }
 
-function defaultStore() {
-  const forms = {};
-  allFormIds().forEach(id => { forms[id] = blankJobOrder(); });
-  const businessId = BUSINESS_ORDER.find(b => formsFor(b).length) || BUSINESS_ORDER[0];
-  return { businessId, formId: formsFor(businessId)[0], forms };
-}
+function defaultStore() { return { businessId: BUSINESS_ORDER[0], interview: blankInterview() }; }
 
 let store = loadStore();
-let state = store.forms[store.formId];       // active form's job order
+let state = store.interview;
 let currentStep = 0;
-const formSteps = {};                         // remembered step per form
-const businessForm = {};                      // remembered form per business
 
 function loadStore() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && saved.forms) {
+    if (saved && saved.interview) {
       const base = defaultStore();
-      if (FORMS[saved.formId]) {
-        base.formId = saved.formId;
-        base.businessId = FORMS[saved.formId].business;   // business follows the form
-      }
-      allFormIds().forEach(id => {
-        const s = saved.forms[id];
-        if (!s) return;
-        const jo = base.forms[id];
-        jo.roleId = s.roleId || null;
-        jo.common = Object.assign(jo.common, s.common || {});
-        jo.roles = s.roles || {};
-        jo.notes = Object.assign(jo.notes, s.notes || {});
-        jo.aiAnalysis = s.aiAnalysis || null;
-        jo.interviewDate = s.interviewDate || null;
-      });
-      return base;
-    }
-    /* migrate a single-form save from the standalone Tech app */
-    if (saved && saved.common) {
-      const base = defaultStore();
-      const jo = base.forms.tech;
-      base.businessId = "tts";
-      base.formId = "tech";
-      jo.roleId = saved.roleId || null;
-      jo.common = Object.assign(jo.common, saved.common || {});
-      jo.roles = saved.roles || {};
-      jo.notes = Object.assign(jo.notes, saved.notes || {});
-      jo.aiAnalysis = saved.aiAnalysis || null;
+      if (BUSINESSES[saved.businessId]) base.businessId = saved.businessId;
+      const s = saved.interview, iv = base.interview;
+      iv.shortlist = (s.shortlist || []).filter(k => roleByKey(k));
+      iv.common = Object.assign(iv.common, s.common || {});
+      ["skills", "dives", "tools", "ai"].forEach(k => { iv[k] = s[k] || {}; });
+      iv.customSkills = s.customSkills || [];
+      iv.fit = Object.assign(iv.fit, s.fit || {});
+      iv.notes = Object.assign(iv.notes, s.notes || {});
+      iv.aiAnalysis = s.aiAnalysis || null;
+      iv.interviewDate = s.interviewDate || null;
       return base;
     }
   } catch (e) { /* corrupted — start fresh */ }
   return defaultStore();
-}
-
-function switchForm(id) {
-  if (id === store.formId || !FORMS[id]) return;
-  formSteps[store.formId] = currentStep;
-  store.formId = id;
-  store.businessId = FORMS[id].business;
-  businessForm[store.businessId] = id;
-  state = store.forms[id];
-  currentStep = formSteps[id] || 0;
-  saveState();
-  render();
-}
-
-/* Switching business lands on that business's remembered form (or its first). */
-function switchBusiness(bid) {
-  if (bid === store.businessId || !BUSINESSES[bid]) return;
-  const forms = formsFor(bid);
-  if (!forms.length) return;
-  const target = forms.includes(businessForm[bid]) ? businessForm[bid] : forms[0];
-  businessForm[store.businessId] = store.formId;
-  switchForm(target);
 }
 
 let saveTimer = null;
@@ -144,6 +107,13 @@ window.addEventListener("pagehide", flushSave);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") flushSave();
 });
+
+function switchBusiness(bid) {
+  if (bid === store.businessId || !BUSINESSES[bid]) return;
+  store.businessId = bid;
+  saveState();
+  render();
+}
 
 /* ---------- theme ----------
    "auto" follows the system preference via the prefers-color-scheme media
@@ -177,62 +147,15 @@ function setThemePref(pref) {
 
 applyTheme(themePref());
 
-/* ---------- role helpers ---------- */
-
-function activeRole() { return state.roleId ? activeForm().roles[state.roleId] : null; }
-
-function ensureRole(id) {
-  if (!id) return null;
-  if (!state.roles[id]) state.roles[id] = { stack: {}, success: {}, areas: {}, deepDives: {} };
-  const r = state.roles[id];
-  if (!r.custom) r.custom = { areas: [], stack: [] };
-  activeForm().roles[id].focusAreas.concat((r.custom.areas || []).map(customAreaDef)).forEach(a => {
-    if (!r.areas[a.id]) r.areas[a.id] = {};
-    if (!r.deepDives[a.id]) r.deepDives[a.id] = {};
-  });
-  return r;
-}
-
-function roleState() { return ensureRole(state.roleId); }
-
-/* ---------- custom (user-added) entries ----------
-   Custom focus areas and stack categories live in the job-order state
-   (state.roles[id].custom), so "Start new interview" clears them. */
-
-function slugId(label) {
-  return "custom_" + label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")
-    + "_" + Math.random().toString(36).slice(2, 6);
-}
-
-/* A user-added focus area gets a generic deep dive. */
-function customAreaDef(c) {
-  return { id: c.id, label: c.label, icon: "➕", custom: true, deepDive: {
-    intro: "Custom focus area — capture what they actually did here and at what scale.",
-    questions: [
-      { id: "details", type: "textarea", label: "What did they do here?",
-        placeholder: "Scope, scale, what they owned vs. supported…" },
-      { id: "tools", type: "text", label: "Tools / skills used?",
-        placeholder: "Tools, platforms, certifications…" }
-    ],
-    tips: [] } };
-}
-
-/* Built-in focus areas for the active role plus any user-added ones. */
-function roleFocusAreas() {
-  const role = activeRole();
-  if (!role) return [];
-  return role.focusAreas.concat((roleState().custom.areas || []).map(customAreaDef));
-}
-
 /* ---------- experience depth model ----------
-   Each focus area records what the candidate has actually done:
+   Each skill records what the candidate has actually done:
      depth    — what they could deliver unaided (see DEPTH_LEVELS)
      years    — cumulative years doing it, not tenure in a job that listed it
      last     — last hands-on: "current" (as of the interview), a year, or
                 "earlier" until the year is pinned down
      evidence — how well they backed the rating up
      interest — whether they want more of it or want to avoid it
-   An area with no depth was never discussed; "none" means asked, and they
+   A skill with no depth was never discussed; "none" means asked, and they
    have no real experience — a known gap. */
 
 const DEPTH_LEVELS = [
@@ -255,13 +178,13 @@ const INTEREST_OPTIONS = [
 ];
 
 /* Years since last hands-on before a Hands-on-or-deeper skill gets the
-   "ask what's changed" prompt. Tech moves faster than accounting. */
-const STALE_YEARS = { management: 5, tech: 3, digital: 3 };
-const STALE_DEFAULT = 3;
+   "ask what's changed" prompt. Each skill declares how fast it decays: tech,
+   digital, and platform skills are "fast" (3 years); accounting, finance, and
+   delivery skills are "slow" (5 years). */
+const STALE_YEARS = { fast: 3, slow: 5 };
 
 function depthRank(a) { return a && DEPTH_RANK[a.depth] != null ? DEPTH_RANK[a.depth] : -1; }
 function depthLabel(id) { const d = DEPTH_LEVELS.find(x => x.id === id); return d ? d.label : ""; }
-function staleCutoff() { return STALE_YEARS[store.formId] || STALE_DEFAULT; }
 
 /* Stamped the first time it's needed and cleared by "Start new interview".
    Recency chips and "hands-on now" are anchored to it. */
@@ -285,161 +208,191 @@ function yearsSinceHandsOn(a) {
   const y = lastYear(a);
   return y == null ? null : new Date().getFullYear() - y;
 }
-function isStale(a) {
+function staleCutoff(skillId) {
+  const def = skillDef(skillId);
+  return STALE_YEARS[(def && def.decay) || "fast"];
+}
+function isStale(a, skillId) {
   const age = yearsSinceHandsOn(a);
-  return depthRank(a) >= DEPTH_RANK.hands_on && age != null && age >= staleCutoff();
+  return depthRank(a) >= DEPTH_RANK.hands_on && age != null && age >= staleCutoff(skillId);
 }
 
-/* Catalog tips call areaPriority(state, id) from the client-intake model
-   (must / nice / skip). Map depth onto it so the byte-identical catalogs
-   keep working. */
-function areaPriority(s, areaId) {
-  if (!s.roleId || !s.roles[s.roleId]) return "skip";
-  const r = depthRank(s.roles[s.roleId].areas[areaId]);
-  return r >= DEPTH_RANK.owned ? "must" : r >= DEPTH_RANK.exposure ? "nice" : "skip";
+/* ---------- skills ---------- */
+
+function slugId(label) {
+  return "custom_" + label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "")
+    + "_" + Math.random().toString(36).slice(2, 6);
+}
+
+/* A recruiter-added skill gets a generic deep dive. Its staleness follows the
+   catalogs being explored: slow if any is Management Resources. */
+function customSkillDef(c) {
+  const slow = shortlistRoles().some(r => r.cat === "management");
+  return {
+    id: c.id, label: c.label, icon: "➕", custom: true, decay: slow ? "slow" : "fast",
+    what: "A skill you added for this candidate.",
+    ask: ["Walk me through the most recent time you used this — what was the situation, what did you do, and what was the result?"],
+    listen: "Specifics: scope, their own decisions, and a measurable result.",
+    red: "Only generalities, or the team's work described as their own.",
+    capture: [
+      { id: "details", type: "textarea", label: "What did they do here?", placeholder: "Scope, scale, what they owned vs. supported…" },
+      { id: "tools", type: "text", label: "Tools / platforms used", placeholder: "Tools, platforms, certifications…" }
+    ]
+  };
+}
+
+function skillDef(id) {
+  if (SKILLS[id]) return Object.assign({ id }, SKILLS[id]);
+  const c = (state.customSkills || []).find(x => x.id === id);
+  return c ? customSkillDef(c) : null;
+}
+
+function skillState(id) {
+  if (!state.skills[id]) state.skills[id] = {};
+  if (!state.dives[id]) state.dives[id] = {};
+  return state.skills[id];
+}
+
+/* Skills of the shortlisted roles, in interview order, each listed once with
+   the roles that share it; recruiter-added skills last. */
+function interviewSkills() {
+  const seen = {};
+  const out = [];
+  shortlistRoles().forEach(r => r.role.skills.forEach(id => {
+    if (seen[id]) { seen[id].roles.push(r.key); return; }
+    const entry = { id, def: skillDef(id), roles: [r.key] };
+    seen[id] = entry;
+    out.push(entry);
+  }));
+  (state.customSkills || []).forEach(c => out.push({ id: c.id, def: customSkillDef(c), roles: [] }));
+  return out;
+}
+
+/* How many roles (across every catalog) use each skill. A skill most roles
+   share tells you little about which role fits, so Role Fit weights it less. */
+let usageCache = null;
+function skillUsage() {
+  if (usageCache) return usageCache;
+  usageCache = {};
+  allRoleKeys().forEach(k => roleByKey(k).role.skills.forEach(id => { usageCache[id] = (usageCache[id] || 0) + 1; }));
+  return usageCache;
+}
+
+/* ---------- role fit ----------
+   Each role scores the candidate on its own skills: depth → value (None 0,
+   Exposure .25, Hands-on .6, Owned .85, Led 1), stale skills count at 60%,
+   unrated skills count as 0 (so coverage matters), and a skill five or more
+   roles share counts half. When the candidate has named 3+ tools, tool
+   overlap with the role's tool lists contributes 20% — but only for a role
+   whose skills already score above zero. */
+
+const DEPTH_VALUE = { none: 0, exposure: .25, hands_on: .6, owned: .85, led: 1 };
+
+function candidateTools() {
+  const set = new Set();
+  Object.values(state.tools || {}).forEach(v => (Array.isArray(v) ? v : []).forEach(t => set.add(String(t).toLowerCase().trim())));
+  return set;
+}
+
+function roleFit(key) {
+  const r = roleByKey(key);
+  if (!r) return null;
+  const usage = skillUsage();
+  let wsum = 0, vsum = 0, rated = 0;
+  r.role.skills.forEach(id => {
+    const w = usage[id] >= 5 ? .5 : 1;
+    wsum += w;
+    const a = state.skills[id];
+    if (depthRank(a) < 0) return;
+    rated++;
+    let v = DEPTH_VALUE[a.depth] || 0;
+    if (isStale(a, id)) v *= .6;
+    vsum += w * v;
+  });
+  const skillScore = wsum ? vsum / wsum : 0;
+  const tools = candidateTools();
+  let toolScore = null;
+  if (tools.size >= 3) {
+    const opts = new Set();
+    r.role.tools.forEach(c => c.options.forEach(o => opts.add(o.toLowerCase().trim())));
+    let hit = 0;
+    opts.forEach(o => { if (tools.has(o)) hit++; });
+    toolScore = opts.size ? Math.min(1, hit / Math.min(5, opts.size)) : 0;
+  }
+  /* tools only adjust a score the skills have earned — never create one */
+  const fit = toolScore == null || skillScore === 0 ? skillScore : .8 * skillScore + .2 * toolScore;
+  return { key, r, fit, rated, total: r.role.skills.length, profile: roleProfile(r.role) };
+}
+
+function rankedFits() {
+  return allRoleKeys().map(roleFit)
+    .filter(f => f.fit > 0 || state.shortlist.includes(f.key) || state.fit.primary === f.key)
+    .sort((a, b) => b.fit - a.fit);
+}
+
+/* Placement profile for a role: its profiles' skill sets matched against
+   skills the candidate owned or led — recent ones first; a match that only
+   works by counting stale skills is labelled as such. */
+function roleProfile(role) {
+  const strong = role.skills.filter(id => depthRank(state.skills[id]) >= DEPTH_RANK.owned);
+  if (!strong.length) return null;
+  const fresh = strong.filter(id => !isStale(state.skills[id], id));
+  const match = ids => role.profiles.find(p => p.skills.every(id => ids.includes(id)));
+  let p = match(fresh);
+  if (p) return { kicker: "Currently marketable as", profile: p.profile, skills: p.skills, stale: false };
+  p = match(strong);
+  if (p) return { kicker: "Was marketable as", profile: p.profile + " (stale)", skills: p.skills, stale: true };
+  return null;
+}
+
+/* Suggested seniority from the depth ratings on a role's skills they have
+   (a "None" gap doesn't lower it), lifted to Manager / Director when they
+   lead a team. A starting point, not a verdict. */
+function suggestedLevel(key) {
+  const r = roleByKey(key);
+  if (!r) return null;
+  const ranks = r.role.skills.map(id => depthRank(state.skills[id])).filter(x => x >= DEPTH_RANK.exposure);
+  if (ranks.length < 2) return null;
+  const mean = ranks.reduce((s, x) => s + x, 0) / ranks.length;
+  const reports = state.common.history.direct_reports;
+  if (mean >= 3 && (reports === "9–15" || reports === "16+")) return "Director / executive";
+  if (mean >= 2.6 && (reports === "4–8" || reports === "9–15" || reports === "16+")) return "Manager";
+  if (mean >= 3.3) return "Lead / principal";
+  if (mean >= 2.6) return "Senior";
+  if (mean >= 1.8) return "Mid-level";
+  return "Entry / junior";
 }
 
 /* ---------- wizard structure ---------- */
 
-function wizardSteps() {
-  return [
-    { kind: "basics" },
-    { kind: "config", key: "team" },
-    { kind: "depth" },
-    { kind: "deepdives" },   /* combined focus-area drill-downs + tools ("Tech Stack") */
-    { kind: "config", key: "success" },
-    { kind: "config", key: "logistics" },
-    { kind: "config", key: "closing" },
-    { kind: "review" }
-  ];
+const STEPS = [
+  { kind: "candidate", title: "Candidate & Roles" },
+  { kind: "common", key: "history", title: "Career History" },
+  { kind: "depth", title: "Experience Depth" },
+  { kind: "dives", title: "Technical Deep Dive" },
+  { kind: "fit", title: "Role Fit" },
+  { kind: "common", key: "wants", title: "What They Want" },
+  { kind: "common", key: "pay", title: "Pay & Logistics" },
+  { kind: "common", key: "next", title: "Screening & Next Steps" },
+  { kind: "review", title: "Review & Export" }
+];
+
+/* Union of a role field across the shortlisted roles, for optionsFrom chips. */
+function shortlistOptions(kind) {
+  const out = [];
+  shortlistRoles().forEach(r => (r.role[kind] || []).forEach(o => {
+    const label = typeof o === "string" ? o : o.label;
+    if (!out.includes(label)) out.push(label);
+  }));
+  return out;
 }
 
-function stepTitle(w) {
-  if (w.kind === "basics") return "Role & Basics";
-  if (w.kind === "depth") return "Experience Depth";
-  if (w.kind === "deepdives") return stackStepLabel();
-  if (w.kind === "review") return "Review & Export";
-  return { logistics: "Logistics & Budget", team: "Team Structure",
-           success: "Success & Candidate", closing: "Closing" }[w.key];
-}
-
-/* Build the {title, subtitle, coach, questions, tips, answers} definition for
-   a config-style step. Role-dependent option lists are injected here so both
-   rendering and summary collection use identical question sets. */
-function configStepDef(key) {
-  const role = activeRole();
-  if (key === "logistics") return Object.assign({}, activeForm().common.logistics, { answers: state.common.logistics });
-  if (key === "closing")   return Object.assign({}, activeForm().common.closing,   { answers: state.common.closing, extra: (c) => renderCloseNext(c) });
-  if (key === "team") {
-    const qs = activeForm().common.team.questions.map(q =>
-      q.id === "specialists" ? Object.assign({}, q, { options: role ? role.specialists.map(s => s.label) : [] }) : q);
-    return { title: activeForm().common.team.title, subtitle: activeForm().common.team.subtitle, questions: qs,
-             tips: activeForm().common.team.tips, answers: state.common.team };
-  }
-  if (key === "stack") {
-    if (!role) return null;
-    const rs = roleState();
-    const questions = role.stackCategories.map(c => {
-      if (c.options) {
-        /* migrate a legacy free-text answer into the chip array */
-        const v = rs.stack[c.id];
-        if (typeof v === "string" && v.trim()) rs.stack[c.id] = [v.trim()];
-        return { id: c.id, type: "chips", label: c.label, options: c.options };
-      }
-      return { id: c.id, type: "text", label: c.label, placeholder: c.placeholder };
-    })
-      .concat((rs.custom.stack || []).map(c => {
-        const v = rs.stack[c.id];
-        if (typeof v === "string" && v.trim()) rs.stack[c.id] = [v.trim()];
-        return { id: c.id, type: "chips", label: c.label, options: [], custom: true };
-      }))
-      .concat([
-        { id: "ai_usage", type: "chips", label: "How are you currently using AI in this function?", options: role.aiUseCases },
-        { id: "ai_requirement", type: "radio", label: "Is AI experience preferred or required?",
-          options: ["Required", "Preferred", "Not important"] },
-        { id: "ai_tools", type: "chips", label: "Which AI tools / skills should they have experience with?",
-          options: role.aiTools || [],
-          showIf: a => a.ai_requirement === "Required" || a.ai_requirement === "Preferred" },
-        { id: "ai_expectations", type: "textarea", label: "What should they use AI for in this role?",
-          placeholder: "The outcomes the client expects from AI — speed up delivery, automate reporting, draft content, cut costs…",
-          showIf: a => a.ai_requirement === "Required" || a.ai_requirement === "Preferred" }
-      ]);
-    return {
-      title: stackStepLabel(), subtitle: "Ask them to list every tool they use.",
-      questions,
-      tips: [{ when: a => a.ai_requirement === "Required" && (a.ai_usage || []).length === 0,
-        text: "AI experience is 'required' but they couldn't name current AI use cases — clarify what AI skill they'd actually test for." }],
-      answers: rs.stack,
-      extra: (container) => {
-        const box = el("div", "custom-add");
-        const row = el("div", "custom-add-row");
-        const input = el("input");
-        input.type = "text";
-        input.placeholder = "Add a tool category that isn't listed…";
-        const btn = el("button", "btn", "+ Add category");
-        const add = () => {
-          const v = input.value.trim();
-          if (!v) return;
-          const all = role.stackCategories.concat(rs.custom.stack || []);
-          if (all.some(c => c.label.toLowerCase() === v.toLowerCase())) { input.value = ""; return; }
-          rs.custom.stack.push({ id: slugId(v), label: v });
-          saveState();
-          render();
-        };
-        btn.addEventListener("click", add);
-        input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); add(); } });
-        row.appendChild(input);
-        row.appendChild(btn);
-        box.appendChild(row);
-        if ((rs.custom.stack || []).length) {
-          const rmRow = el("div", "custom-remove-row");
-          rs.custom.stack.forEach(c => {
-            const rm = el("button", "chip-remove", "× " + esc(c.label));
-            rm.title = "Remove this category";
-            rm.addEventListener("click", () => {
-              rs.custom.stack = rs.custom.stack.filter(x => x.id !== c.id);
-              delete rs.stack[c.id];
-              saveState();
-              render();
-            });
-            rmRow.appendChild(rm);
-          });
-          box.appendChild(rmRow);
-        }
-        /* place the add-category control with the stack fields, before the AI questions */
-        const aiWrap = container.querySelector('[data-qid="ai_usage"]');
-        if (aiWrap) container.insertBefore(box, aiWrap);
-        else container.appendChild(box);
-      }
-    };
-  }
-  if (key === "success") {
-    if (!role) return null;
-    return {
-      title: "Success & Ideal Candidate", subtitle: "How will this person be measured, and who fits?",
-      questions: [
-        { id: "top3", type: "textlist", count: 3, label: "What are the Top 3 things the candidate needs to have?",
-          placeholder: "Short answer — one must-have per line" },
-        { id: "metrics", type: "chips", label: "How will this person be measured?", options: role.metrics },
-        { id: "success_6_12", type: "textarea", label: "What does success look like after 6–12 months?",
-          placeholder: "Concrete outcomes the client will judge this hire on" },
-        { id: "background", type: "chips", label: "Would the ideal candidate come from…", options: role.backgrounds },
-        { id: "years_experience", type: "select", label: "Years of experience?", options: ["1–3", "3–5", "5–8", "8–12", "12+"] },
-        { id: "industry_required", type: "radio", label: "Is industry experience required?",
-          options: ["Required", "Preferred", "Not important"] },
-        { id: "industry_which", type: "text", label: "Which industry?", placeholder: "e.g., healthcare SaaS",
-          showIf: a => a.industry_required === "Required" || a.industry_required === "Preferred" },
-        { id: "soft_skills", type: "textarea", label: "Soft skills?",
-          placeholder: "Communication with execs, cross-functional collaboration, autonomy…" },
-        { id: "non_negotiables", type: "textarea", label: "Non-negotiables",
-          placeholder: "Hard dealbreakers — location, tools, work authorization, portfolio…" }
-      ],
-      tips: [{ when: a => (a.metrics || []).length > 6,
-        text: "More than six success metrics usually means the client hasn't decided what this role is for. Ask which ONE metric gets this person a great review." }],
-      answers: roleState().success
-    };
-  }
-  return null;
+/* A common step's definition with role-dependent options resolved, so
+   rendering and export use identical question sets. */
+function commonStepDef(key) {
+  const step = IV.steps[key];
+  const questions = step.questions.map(q => q.optionsFrom ? Object.assign({}, q, { options: shortlistOptions(q.optionsFrom) }) : q);
+  return Object.assign({}, step, { questions, answers: state.common[key] });
 }
 
 /* ---------- DOM + rendering utilities ---------- */
@@ -500,6 +453,63 @@ function renderQuestions(container, questions, answers, scopeId, onChange) {
         list.appendChild(row);
       }
       wrap.appendChild(list);
+    } else if (q.type === "group") {
+      /* N repeated mini-forms (e.g. positions), stored as an array of objects */
+      if (!Array.isArray(answers[q.id])) answers[q.id] = [];
+      const list = el("div", "group-list");
+      for (let i = 0; i < (q.count || 3); i++) {
+        const item = answers[q.id][i] || (answers[q.id][i] = {});
+        const card = el("div", "group-item");
+        card.appendChild(el("div", "group-num", String(i + 1)));
+        const grid = el("div", "group-grid");
+        q.fields.forEach(f => {
+          const cell = el("label", "group-field" + (f.long ? " long" : ""));
+          cell.appendChild(el("span", "group-field-lab", esc(f.label)));
+          const input = el(f.long ? "textarea" : "input");
+          if (!f.long) input.type = "text";
+          else input.rows = 2;
+          input.placeholder = f.placeholder || "";
+          input.value = item[f.id] || "";
+          input.addEventListener("input", () => { item[f.id] = input.value; changed(); });
+          cell.appendChild(input);
+          grid.appendChild(cell);
+        });
+        card.appendChild(grid);
+        list.appendChild(card);
+      }
+      wrap.appendChild(list);
+    } else if (q.type === "payrange") {
+      /* ideal low–high plus the bottom end they'd walk away below */
+      const v = (answers[q.id] && typeof answers[q.id] === "object") ? answers[q.id] : (answers[q.id] = {});
+      const row = el("div", "payrange");
+      const num = (key, ph) => {
+        const box = el("span", "pay-input");
+        box.appendChild(el("span", "pay-cur", "$"));
+        const input = el("input");
+        input.type = "number"; input.min = 0; input.step = q.step || 1; input.placeholder = ph;
+        input.value = v[key] != null ? v[key] : "";
+        input.setAttribute("aria-label", q.label + " " + ph);
+        input.addEventListener("input", () => { v[key] = input.value; changed(); });
+        box.appendChild(input);
+        return box;
+      };
+      const ideal = el("div", "pay-block");
+      ideal.appendChild(el("span", "pay-lab", "Ideal range"));
+      const idealRow = el("div", "pay-row");
+      idealRow.appendChild(num("min", "low"));
+      idealRow.appendChild(el("span", "sched-dash", "–"));
+      idealRow.appendChild(num("max", "high"));
+      idealRow.appendChild(el("span", "pay-unit", esc(q.unit || "")));
+      ideal.appendChild(idealRow);
+      const floor = el("div", "pay-block");
+      floor.appendChild(el("span", "pay-lab", "Bottom end"));
+      const floorRow = el("div", "pay-row");
+      floorRow.appendChild(num("floor", "walk-away"));
+      floorRow.appendChild(el("span", "pay-unit", esc(q.unit || "")));
+      floor.appendChild(floorRow);
+      row.appendChild(ideal);
+      row.appendChild(floor);
+      wrap.appendChild(row);
     } else if (q.type === "select") {
       const sel = el("select");
       sel.appendChild(el("option", null, "— select —"));
@@ -602,86 +612,7 @@ function renderTips(container, rules, answers) {
   });
 }
 
-/* ---------- Close To The Next Steps (closing-step scheduler) ----------
-   Bubble selectors for the close path. The four "main" paths are mutually
-   exclusive; Resume/Portfolio Review can ride alongside any one of them.
-   Selecting a path reveals its scheduler (date + time, or date + time
-   range). ICMs first asks how many (1–4), then a range block per ICM. */
-
-const CLOSE_PATHS = [
-  { id: "direct_start", label: "Direct Start", sched: "single" },
-  { id: "resume_review", label: "Resume / Portfolio Review", sched: "single" },
-  { id: "working_interview", label: "Working Interview", sched: "single" },
-  { id: "icm_pending", label: "ICM with Pending Start Date", sched: "days" },
-  { id: "icms", label: "ICMs", sched: "icms" }
-];
-const CLOSE_MAINS = ["direct_start", "working_interview", "icm_pending", "icms"];
-
-function closeNextState() {
-  const c = state.common.closing;
-  if (!c.close_next || typeof c.close_next !== "object") c.close_next = {};
-  const cn = c.close_next;
-  if (!Array.isArray(cn.selected)) cn.selected = [];
-  if (!cn.schedules || typeof cn.schedules !== "object") cn.schedules = {};
-  if (!Array.isArray(cn.icms)) cn.icms = [];
-  if (!(cn.icm_count >= 1 && cn.icm_count <= 4)) cn.icm_count = cn.icm_count || null;
-  return cn;
-}
-
-function toggleClosePath(cn, id, on) {
-  if (!on) {
-    cn.selected = cn.selected.filter(x => x !== id);
-    if (id === "icms") { cn.icm_count = null; cn.icms = []; }
-    return;
-  }
-  if (CLOSE_MAINS.includes(id)) {
-    /* a main is exclusive with the other mains — drop any main already on,
-       but leave Resume/Portfolio Review (not a main) in place */
-    cn.selected = cn.selected.filter(x => !CLOSE_MAINS.includes(x));
-    cn.icm_count = null; cn.icms = [];   /* clear any prior ICM schedule */
-  }
-  if (!cn.selected.includes(id)) cn.selected.push(id);
-}
-
-function renderCloseNext(container) {
-  const host = el("div", "close-next");
-  /* sits at the top of the Closing step, in place of the old interview
-     process question */
-  container.insertBefore(host, container.firstChild);
-  drawCloseNext(host);
-}
-
-function drawCloseNext(host) {
-  host.innerHTML = "";
-  const cn = closeNextState();
-  host.appendChild(el("h3", "subhead", "🤝 Close To The Next Steps"));
-  host.appendChild(el("p", "subtitle", "How are we closing this? Pick the path, then lock in the date and time for each step."));
-  host.appendChild(el("p", "close-next-reminder", "Remind the client: These candidates are pre-vetted by experienced specialist recruiters and this skillset is in high demand. A proven, condensed process improves your likelihood of hiring the right person and not losing them to another company."));
-
-  const group = el("div", "chip-group");
-  CLOSE_PATHS.forEach(p => {
-    const lab = el("label", "chip");
-    const input = el("input");
-    input.type = "checkbox";
-    input.checked = cn.selected.includes(p.id);
-    input.addEventListener("change", () => {
-      toggleClosePath(cn, p.id, input.checked);
-      saveState();
-      drawCloseNext(host);
-    });
-    lab.appendChild(input);
-    lab.appendChild(el("span", null, esc(p.label)));
-    group.appendChild(lab);
-  });
-  host.appendChild(group);
-
-  /* schedulers, in canonical order */
-  CLOSE_PATHS.forEach(p => {
-    if (!cn.selected.includes(p.id)) return;
-    if (p.sched === "icms") host.appendChild(buildIcmsBlock(cn, host));
-    else host.appendChild(buildScheduler(p, cn));
-  });
-}
+/* ---------- interview availability (two days × two windows) ---------- */
 
 function dateField(obj, key) {
   const wrap = el("label", "sched-field");
@@ -705,79 +636,8 @@ function timeField(obj, key, labelTxt) {
   return wrap;
 }
 
-function buildScheduler(p, cn) {
-  const sc = cn.schedules[p.id] || (cn.schedules[p.id] = {});
-  if (p.sched === "days") return buildDayWindows(sc, esc(p.label) + " — propose two days", false);
-  const row = el("div", "sched-row");
-  row.appendChild(el("div", "sched-label", esc(p.label)));
-  const controls = el("div", "sched-controls");
-  controls.appendChild(dateField(sc, "date"));
-  if (p.sched === "range") {
-    controls.appendChild(timeField(sc, "start", "Start"));
-    controls.appendChild(el("span", "sched-dash", "–"));
-    controls.appendChild(timeField(sc, "end", "End"));
-  } else {
-    controls.appendChild(timeField(sc, "time", "Time"));
-  }
-  row.appendChild(controls);
-  return row;
-}
-
-function buildIcmsBlock(cn, host) {
-  const box = el("div", "sched-block");
-  const countRow = el("div", "sched-row");
-  countRow.appendChild(el("div", "sched-label", "ICMs — how many?"));
-  const counts = el("div", "chip-group");
-  [1, 2, 3, 4].forEach(n => {
-    /* 1–2 ICMs read as an easy close (green); 3–4 signal a drawn-out
-       process worth flagging (light red) */
-    const lab = el("label", "chip icm-count " + (n <= 2 ? "good" : "warn"));
-    const input = el("input");
-    input.type = "radio";
-    input.name = "icm_count";
-    input.checked = cn.icm_count === n;
-    input.addEventListener("change", () => {
-      cn.icm_count = n;
-      cn.icms = cn.icms.slice(0, n);
-      while (cn.icms.length < n) cn.icms.push({ date: "", start: "", end: "" });
-      saveState();
-      drawCloseNext(host);
-    });
-    lab.appendChild(input);
-    lab.appendChild(el("span", null, String(n)));
-    counts.appendChild(lab);
-  });
-  countRow.appendChild(counts);
-  box.appendChild(countRow);
-
-  if (cn.icm_count) {
-    for (let i = 0; i < cn.icm_count; i++) {
-      const sc = cn.icms[i] || (cn.icms[i] = { date: "", start: "", end: "" });
-      if (i === 0) { box.appendChild(buildDayWindows(sc, "ICM #1 — propose two days", true)); continue; }
-      const row = el("div", "sched-row indented");
-      row.appendChild(el("div", "sched-label", "ICM #" + (i + 1)));
-      const controls = el("div", "sched-controls");
-      controls.appendChild(dateField(sc, "date"));
-      controls.appendChild(timeField(sc, "start", "Start"));
-      controls.appendChild(el("span", "sched-dash", "–"));
-      controls.appendChild(timeField(sc, "end", "End"));
-      row.appendChild(controls);
-      box.appendChild(row);
-    }
-  }
-  return box;
-}
-
-/* A "day/window" scheduler offers two candidate days, each with two proposed
-   time windows. Shared by ICM #1 and ICM with Pending Start Date. The richer
-   shape (sc.days) is migrated from any plain {date,start,end}. */
 function ensureDayWindows(sc) {
-  if (!Array.isArray(sc.days)) {
-    sc.days = [
-      { date: sc.date || "", ranges: [{ start: sc.start || "", end: sc.end || "" }, { start: "", end: "" }] },
-      { date: "", ranges: [{ start: "", end: "" }, { start: "", end: "" }] }
-    ];
-  }
+  if (!Array.isArray(sc.days)) sc.days = [];
   while (sc.days.length < 2) sc.days.push({ date: "", ranges: [] });
   sc.days.forEach(d => {
     if (!Array.isArray(d.ranges)) d.ranges = [];
@@ -786,9 +646,9 @@ function ensureDayWindows(sc) {
   return sc.days;
 }
 
-function buildDayWindows(sc, title, indent) {
+function buildDayWindows(sc, title) {
   const days = ensureDayWindows(sc);
-  const block = el("div", "sched-block daywin-block" + (indent ? " indented" : ""));
+  const block = el("div", "sched-block daywin-block");
   block.appendChild(el("div", "sched-label", title));
   days.forEach((d, di) => {
     const row = el("div", "sched-row daywin-day");
@@ -811,8 +671,6 @@ function buildDayWindows(sc, title, indent) {
   return block;
 }
 
-/* ---- Close-plan formatting for exports ---- */
-
 function fmtDate(d) {
   if (!d) return "";
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
@@ -828,122 +686,121 @@ function fmtTime(t) {
   h = h % 12 || 12;
   return h + ":" + m[2] + " " + ap;
 }
-function fmtWhen(sc, kind) {
-  const date = fmtDate(sc.date);
-  if (kind === "range") {
-    const range = [fmtTime(sc.start), fmtTime(sc.end)].filter(Boolean).join("–");
-    return [date, range].filter(Boolean).join(", ");
-  }
-  return [date, fmtTime(sc.time)].filter(Boolean).join(" at ");
+
+function availabilityState() {
+  const n = state.common.next;
+  if (!n.availability || typeof n.availability !== "object") n.availability = {};
+  return n.availability;
 }
 
-/* Day/window export lines — one per proposed day, listing its filled windows.
-   `prefix` labels the lines (e.g. "ICM #1" or the pending-start path label). */
-function dayWindowLines(sc, prefix, indent) {
-  const days = ensureDayWindows(sc);
-  const pad = indent ? "  " : "";
+/* Export lines — one per proposed day, listing its filled windows. */
+function availabilityLines() {
   const out = [];
-  days.forEach((d, di) => {
+  ensureDayWindows(availabilityState()).forEach((d, di) => {
     const date = fmtDate(d.date);
     const windows = (d.ranges || [])
       .map(r => [fmtTime(r.start), fmtTime(r.end)].filter(Boolean).join("–"))
       .filter(Boolean);
     if (!date && !windows.length) return;
-    const val = [date, windows.join(", ")].filter(Boolean).join(" — ");
-    const key = prefix.replace(/[^a-z0-9]+/gi, "_").toLowerCase();
-    out.push({ label: pad + prefix + " · Day " + (di + 1), value: val, id: "close_" + key + "_day" + di });
+    out.push({ label: "Interview availability · Day " + (di + 1),
+      value: [date, windows.join(", ")].filter(Boolean).join(" — "), id: "availability_day" + di });
   });
   return out;
 }
 
-/* Returns [{label,value}] lines for the close plan, or [] if nothing set. */
-function closeNextLines() {
-  const c = state.common.closing;
-  const cn = c && c.close_next;
-  if (!cn || !Array.isArray(cn.selected) || !cn.selected.length) return [];
-  const lines = [];
-  CLOSE_PATHS.forEach(p => {
-    if (!cn.selected.includes(p.id)) return;
-    if (p.sched === "icms") {
-      const n = cn.icm_count || 0;
-      lines.push({ label: "ICMs", value: n ? n + " scheduled" : "count not set", id: "close_icms" });
-      (cn.icms || []).slice(0, n).forEach((sc, i) => {
-        if (i === 0) {
-          const l1 = dayWindowLines(sc, "ICM #1", true);
-          if (l1.length) lines.push(...l1);
-          else lines.push({ label: "  ICM #1", value: "date/time not set", id: "close_icm_0" });
-          return;
-        }
-        const when = fmtWhen(sc, "range");
-        lines.push({ label: "  ICM #" + (i + 1), value: when || "date/time not set", id: "close_icm_" + i });
-      });
-    } else if (p.sched === "days") {
-      const sc = (cn.schedules || {})[p.id] || {};
-      const dl = dayWindowLines(sc, p.label, false);
-      if (dl.length) lines.push(...dl);
-      else lines.push({ label: p.label, value: "date/time not set", id: "close_" + p.id });
-    } else {
-      const sc = (cn.schedules || {})[p.id] || {};
-      const when = fmtWhen(sc, p.sched);
-      lines.push({ label: p.label, value: when || "date/time not set", id: "close_" + p.id });
-    }
-  });
-  return lines;
-}
+/* ---------- common steps ---------- */
 
-function renderConfigLike(main, def) {
+function renderCommonStep(main, key) {
+  const def = commonStepDef(key);
   main.appendChild(el("h2", null, esc(def.title)));
   if (def.subtitle) main.appendChild(el("p", "subtitle", esc(def.subtitle)));
   if (def.coach) main.appendChild(el("div", "coach", "🎯 " + esc(def.coach)));
 
+  if (def.availability) {
+    const host = el("div", "close-next");
+    host.appendChild(el("h3", "subhead", "🗓️ Interview availability"));
+    host.appendChild(el("p", "subtitle", "Two days they could interview, with two time windows each."));
+    host.appendChild(buildDayWindows(availabilityState(), "Propose two days"));
+    main.appendChild(host);
+  }
+
   const qContainer = el("div", "questions");
   const tipsContainer = el("div", "tips");
   main.appendChild(qContainer);
   main.appendChild(tipsContainer);
-
   const refresh = () => renderTips(tipsContainer, def.tips, def.answers);
-  renderQuestions(qContainer, def.questions, def.answers, def.title, refresh);
-  if (def.extra) def.extra(qContainer);
+  renderQuestions(qContainer, def.questions, def.answers, key, refresh);
   refresh();
 }
 
-/* ---------- step 1: role picker + basics ---------- */
+/* ---------- step 1: candidate + roles to explore ---------- */
 
-function renderBasics(main) {
-  main.appendChild(el("h2", null, "Role & Basic Information"));
-  main.appendChild(el("p", "subtitle", "Pick the role — it tailors the rest of the intake — then capture the basics."));
+function toggleShortlist(key) {
+  const i = state.shortlist.indexOf(key);
+  if (i >= 0) state.shortlist.splice(i, 1);
+  else {
+    state.shortlist.push(key);
+    roleByKey(key).role.skills.forEach(skillState);
+  }
+  saveState();
+}
+
+function renderCandidateStep(main) {
+  main.appendChild(el("h2", null, "Candidate & Roles to Explore"));
+  main.appendChild(el("p", "subtitle",
+    "Pick the roles the résumé points to — their skills drive the depth and deep-dive steps. Role Fit then scores every role, including ones you didn't pick."));
 
   const pickerWrap = el("div", "picker-wrap");
-  pickerWrap.appendChild(el("div", "q-label", "Which role is this job order for?"));
-  const grid = el("div", "role-grid");
-  activeForm().roleOrder.forEach(id => {
-    const r = activeForm().roles[id];
-    const card = el("button", "role-card" + (state.roleId === id ? " selected" : ""));
-    card.innerHTML =
-      "<span class='role-icon'>" + r.icon + "</span>" +
-      "<span class='role-label'>" + esc(r.label) + "</span>" +
-      "<span class='role-tag'>" + esc(r.tagline) + "</span>";
-    card.addEventListener("click", () => { state.roleId = id; ensureRole(id); saveState(); render(); });
-    grid.appendChild(card);
+  pickerWrap.appendChild(el("div", "q-label", "Which roles might fit? Pick 1–3."));
+
+  /* shortlisted roles from the other business stay visible here */
+  const elsewhere = shortlistRoles().filter(r => FORMS[r.cat].business !== store.businessId);
+  if (elsewhere.length) {
+    const row = el("div", "shortlist-row");
+    row.appendChild(el("span", "shortlist-lab", "Also exploring:"));
+    elsewhere.forEach(r => {
+      const b = el("button", "chip-remove", esc(r.role.icon + " " + r.role.label) + " ×");
+      b.title = "Remove from roles to explore";
+      b.addEventListener("click", () => { toggleShortlist(r.key); render(); });
+      row.appendChild(b);
+    });
+    pickerWrap.appendChild(row);
+  }
+
+  catalogsFor(store.businessId).forEach(cat => {
+    const form = FORMS[cat];
+    if (catalogsFor(store.businessId).length > 1) pickerWrap.appendChild(el("div", "picker-group", esc(form.label)));
+    const grid = el("div", "role-grid");
+    form.roleOrder.forEach(rid => {
+      const key = cat + ":" + rid;
+      const r = form.roles[rid];
+      const on = state.shortlist.includes(key);
+      const card = el("button", "role-card" + (on ? " selected" : ""));
+      card.setAttribute("aria-pressed", on ? "true" : "false");
+      card.innerHTML =
+        "<span class='role-icon'>" + r.icon + "</span>" +
+        "<span class='role-label'>" + esc(r.label) + "</span>" +
+        "<span class='role-tag'>" + esc(r.tagline) + "</span>";
+      card.addEventListener("click", () => { toggleShortlist(key); render(); });
+      grid.appendChild(card);
+    });
+    pickerWrap.appendChild(grid);
   });
-  pickerWrap.appendChild(grid);
   main.appendChild(pickerWrap);
 
-  if (state.roleId) {
+  const n = state.shortlist.length;
+  if (n) {
     main.appendChild(el("div", "role-note",
-      activeForm().roles[state.roleId].icon + " <strong>" + esc(activeForm().roles[state.roleId].label) + "</strong> selected — Experience Depth and the skill drill-downs are now tailored to it."));
+      "Exploring <strong>" + n + " role" + (n === 1 ? "" : "s") + "</strong> — " +
+      interviewSkills().length + " skills to rate on Experience Depth."));
+  }
+  if (n > 3) {
+    main.appendChild(el("div", "tip warn",
+      "⚠️ " + n + " roles makes the depth step long. Narrow to the 2–3 the résumé supports best — Role Fit will still surface the others."));
   }
 
   main.appendChild(el("hr", "divider"));
-
-  if (activeForm().common.basics.coach) main.appendChild(el("div", "coach", "🎯 " + esc(activeForm().common.basics.coach)));
-  const qContainer = el("div", "questions");
-  const tipsContainer = el("div", "tips");
-  main.appendChild(qContainer);
-  main.appendChild(tipsContainer);
-  const refresh = () => renderTips(tipsContainer, activeForm().common.basics.tips, state.common.basics);
-  renderQuestions(qContainer, activeForm().common.basics.questions, state.common.basics, "basics", refresh);
-  refresh();
+  renderCommonStep(main, "candidate");
 }
 
 /* ---------- role-required guard ---------- */
@@ -951,28 +808,25 @@ function renderBasics(main) {
 function needsRoleNotice(main, what) {
   main.appendChild(el("h2", null, what));
   const notice = el("div", "tip warn",
-    "⚠️ Pick a role on the first step to load the tailored " + what.toLowerCase() + ".");
+    "⚠️ Pick at least one role to explore on the first step — its skills load here.");
   main.appendChild(notice);
-  const btn = el("button", "btn primary", "← Go to Role & Basics");
+  const btn = el("button", "btn primary", "← Go to Candidate & Roles");
   btn.addEventListener("click", () => { currentStep = 0; render(); });
   main.appendChild(el("div", "actions")).appendChild(btn);
 }
 
 /* ---------- experience depth ----------
-   One row per focus area. Depth is rated from what the candidate could
-   deliver unaided; years, last hands-on, evidence, and interest only appear
-   once an area is rated Exposure or above. Changing a row redraws just that
-   row plus the summary below the list, so the page never jumps. */
+   One row per skill. Depth is rated from what the candidate could deliver
+   unaided; years, last hands-on, evidence, and interest only appear once a
+   skill is rated Exposure or above. Changing a row redraws just that row plus
+   the summary below the list, so the page never jumps. */
 
 function renderDepthStep(main) {
-  const role = activeRole();
-  if (!role) return needsRoleNotice(main, "Experience Depth");
+  if (!state.shortlist.length && !(state.customSkills || []).length) return needsRoleNotice(main, "Experience Depth");
 
   main.appendChild(el("h2", null, "Experience Depth"));
   main.appendChild(el("p", "subtitle",
-    "Ask: “Walk me through where your week actually goes — what do you own, and what do you hand off?” " +
-    "Rate each area from what they can walk you through, not what's on the résumé. Leave an area on — if it never came up."));
-  main.appendChild(el("div", "coach", "🎯 " + esc(role.blurb)));
+    "Rate each skill from what they can walk you through, not what's on the résumé. Leave a skill on — if it never came up."));
 
   const legend = el("div", "depth-legend");
   legend.appendChild(el("div", "depth-legend-test",
@@ -985,35 +839,64 @@ function renderDepthStep(main) {
   legend.appendChild(dl);
   main.appendChild(legend);
 
-  const rs = roleState();
-  const list = el("div", "depth-list");
   const summary = el("div");
-  roleFocusAreas().forEach(area => {
-    const row = el("div", "depth-row");
-    list.appendChild(row);
-    drawDepthRow(row, area, rs, () => drawDepthSummary(summary));
-  });
-  main.appendChild(list);
+  const onChange = () => drawDepthSummary(summary);
+  const skills = interviewSkills();
+  const done = new Set();
 
-  /* Add a focus area they've worked in that isn't suggested */
+  shortlistRoles().forEach(r => {
+    const head = el("div", "role-block");
+    head.appendChild(el("div", "role-block-title", r.role.icon + " " + esc(r.role.label)));
+    head.appendChild(el("div", "role-block-opener", "Open with: “" + esc(r.role.opener) + "”"));
+    head.appendChild(el("div", "role-block-coach", esc(r.role.coach)));
+    main.appendChild(head);
+
+    const shared = r.role.skills.filter(id => done.has(id));
+    if (shared.length) {
+      main.appendChild(el("p", "q-help shared-note",
+        "Also part of this role, rated above: " + shared.map(id => esc(skillDef(id).label)).join(", ") + "."));
+    }
+    const list = el("div", "depth-list");
+    r.role.skills.filter(id => !done.has(id)).forEach(id => {
+      done.add(id);
+      const row = el("div", "depth-row");
+      list.appendChild(row);
+      drawDepthRow(row, skills.find(s => s.id === id), onChange);
+    });
+    if (list.childNodes.length) main.appendChild(list);
+  });
+
+  const custom = skills.filter(s => s.def.custom);
+  if (custom.length) {
+    main.appendChild(el("div", "role-block", "<div class='role-block-title'>➕ Other skills</div>"));
+    const list = el("div", "depth-list");
+    custom.forEach(s => {
+      const row = el("div", "depth-row");
+      list.appendChild(row);
+      drawDepthRow(row, s, onChange);
+    });
+    main.appendChild(list);
+  }
+
+  /* Add a skill they have that isn't listed */
   const addBox = el("div", "custom-add");
   const addRow = el("div", "custom-add-row");
   const addInput = el("input");
   addInput.type = "text";
-  addInput.placeholder = "Add a focus area that isn't listed…";
+  addInput.placeholder = "Add a skill that isn't listed…";
   const addBtn = el("button", "btn", "+ Add");
-  const addArea = () => {
+  const addSkill = () => {
     const v = addInput.value.trim();
     if (!v) return;
-    const exists = roleFocusAreas().some(a => a.label.toLowerCase() === v.toLowerCase());
-    if (exists) { addInput.value = ""; return; }
-    rs.custom.areas.push({ id: slugId(v), label: v });
-    ensureRole(state.roleId);
+    if (interviewSkills().some(s => s.def.label.toLowerCase() === v.toLowerCase())) { addInput.value = ""; return; }
+    const c = { id: slugId(v), label: v };
+    state.customSkills.push(c);
+    skillState(c.id);
     saveState();
     render();
   };
-  addBtn.addEventListener("click", addArea);
-  addInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addArea(); } });
+  addBtn.addEventListener("click", addSkill);
+  addInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addSkill(); } });
   addRow.appendChild(addInput);
   addRow.appendChild(addBtn);
   addBox.appendChild(addRow);
@@ -1048,30 +931,33 @@ function depthField(labelText, control) {
   return f;
 }
 
-function drawDepthRow(row, area, rs, onChange) {
+function drawDepthRow(row, entry, onChange) {
   row.innerHTML = "";
-  const a = rs.areas[area.id];
+  const id = entry.id, def = entry.def;
+  const a = skillState(id);
   const rank = depthRank(a);
   row.className = "depth-row" + (rank >= DEPTH_RANK.owned ? " strong" : rank >= 0 ? " rated" : "");
-  const redraw = () => { saveState(); drawDepthRow(row, area, rs, onChange); onChange(); };
+  const redraw = () => { saveState(); drawDepthRow(row, entry, onChange); onChange(); };
   const set = (key, v) => { if (v == null) delete a[key]; else a[key] = v; redraw(); };
 
   const head = el("div", "depth-head");
-  const nameCell = el("div", "depth-name", area.icon + " " + esc(area.label));
-  if (area.custom) {
+  const nameCell = el("div", "depth-name");
+  nameCell.appendChild(el("span", null, def.icon + " " + esc(def.label)));
+  if (def.custom) {
     const rm = el("button", "alloc-remove", "×");
-    rm.title = "Remove this focus area";
+    rm.title = "Remove this skill";
     rm.addEventListener("click", () => {
-      rs.custom.areas = rs.custom.areas.filter(c => c.id !== area.id);
-      delete rs.areas[area.id];
-      delete rs.deepDives[area.id];
+      state.customSkills = state.customSkills.filter(c => c.id !== id);
+      delete state.skills[id];
+      delete state.dives[id];
       saveState();
       render();
     });
     nameCell.appendChild(rm);
   }
+  nameCell.appendChild(el("div", "depth-what", esc(def.what)));
   head.appendChild(nameCell);
-  head.appendChild(segControl("depth__" + area.id,
+  head.appendChild(segControl("depth__" + id,
     DEPTH_LEVELS.map(d => ({ id: d.id, label: d.label, title: d.def })), a.depth, v => set("depth", v)));
   row.appendChild(head);
 
@@ -1098,8 +984,7 @@ function drawDepthRow(row, area, rs, onChange) {
   const lastOpts = [{ id: "current", label: "Now" }, { id: iy - 1, label: String(iy - 1) },
                     { id: iy - 2, label: String(iy - 2) }, { id: iy - 3, label: String(iy - 3) },
                     { id: "earlier", label: "Earlier…" }];
-  lastWrap.appendChild(segControl("last__" + area.id, lastOpts, isEarlier ? "earlier" : a.last,
-    v => set("last", v)));
+  lastWrap.appendChild(segControl("last__" + id, lastOpts, isEarlier ? "earlier" : a.last, v => set("last", v)));
   if (isEarlier) {
     const yr = el("select");
     yr.appendChild(el("option", null, "Which year?"));
@@ -1115,12 +1000,12 @@ function drawDepthRow(row, area, rs, onChange) {
   detail.appendChild(depthField("Last hands-on", lastWrap));
 
   detail.appendChild(depthField("Evidence",
-    segControl("evidence__" + area.id, EVIDENCE_OPTIONS, a.evidence, v => set("evidence", v))));
+    segControl("evidence__" + id, EVIDENCE_OPTIONS, a.evidence, v => set("evidence", v))));
   detail.appendChild(depthField("Interest",
-    segControl("interest__" + area.id, INTEREST_OPTIONS, a.interest, v => set("interest", v))));
+    segControl("interest__" + id, INTEREST_OPTIONS, a.interest, v => set("interest", v))));
   row.appendChild(detail);
 
-  const flags = depthFlags(a);
+  const flags = depthFlags(a, id);
   if (flags.length) {
     const box = el("div", "tips depth-flags");
     flags.forEach(f => box.appendChild(el("div", "tip" + (f.warn ? " warn" : ""), "💡 " + esc(f.text))));
@@ -1128,16 +1013,16 @@ function drawDepthRow(row, area, rs, onChange) {
   }
 }
 
-/* Recruiter prompts for one rated area. Engine-side, so they work for every
-   role in every catalog without per-role authoring. */
-function depthFlags(a) {
+/* Recruiter prompts for one rated skill. Engine-side, so they work for every
+   skill without per-skill authoring. */
+function depthFlags(a, id) {
   const out = [];
   const rank = depthRank(a);
   const lvl = depthLabel(a.depth);
   if (a.last === "earlier") {
     out.push({ text: "Pin down the year — “earlier” could mean four years ago or fifteen." });
   }
-  if (isStale(a)) {
+  if (isStale(a, id)) {
     out.push({ warn: true, text: "Last did this in " + lastYear(a) + ". Ask what's changed since then and how quickly they'd get back up to speed." });
   }
   if (rank >= DEPTH_RANK.owned && a.evidence === "claimed") {
@@ -1154,66 +1039,35 @@ function depthFlags(a) {
 
 function drawDepthSummary(container) {
   container.innerHTML = "";
-  const rs = roleState();
-  const areas = roleFocusAreas();
-  const rated = areas.filter(a => depthRank(rs.areas[a.id]) >= 0);
-  const strong = areas.filter(a => depthRank(rs.areas[a.id]) >= DEPTH_RANK.owned);
-  const stale = areas.filter(a => isStale(rs.areas[a.id]));
+  const skills = interviewSkills();
+  const rated = skills.filter(s => depthRank(state.skills[s.id]) >= 0);
+  const strong = skills.filter(s => depthRank(state.skills[s.id]) >= DEPTH_RANK.owned);
+  const stale = skills.filter(s => isStale(state.skills[s.id], s.id));
 
   container.appendChild(el("p", "total-label",
-    "Rated: " + rated.length + " of " + areas.length + " · Owned or led: " + strong.length +
-    " · Not hands-on in " + staleCutoff() + "+ years: " + stale.length));
+    "Rated: " + rated.length + " of " + skills.length + " · Owned or led: " + strong.length +
+    " · Stale (not hands-on recently): " + stale.length));
 
-  const tips = el("div", "tips");
   if (strong.length >= 5) {
+    const tips = el("div", "tips");
     tips.appendChild(el("div", "tip",
-      "💡 Owned or led " + strong.length + " areas — ask which one they want to lead with in their next role. Broad generalists are easier to place when they pick a lane."));
+      "💡 Owned or led " + strong.length + " skills — ask which one they want to lead with in their next role. Broad generalists are easier to place when they pick a lane."));
+    container.appendChild(tips);
   }
-  if (tips.childNodes.length) container.appendChild(tips);
-  renderProfileCard(container);
-}
 
-/* Placement profile. Reuses the catalog's profileRules (the `must` lists),
-   matched against areas the candidate owned or led. Fresh skills first; a
-   match that only works by counting stale skills is labelled as such. The
-   catalog's `detail` text is written for client intake, so it isn't shown. */
-function computeProfile() {
-  const role = activeRole();
-  if (!role) return null;
-  const rs = roleState();
-  const strong = roleFocusAreas().filter(a => depthRank(rs.areas[a.id]) >= DEPTH_RANK.owned);
-  if (!strong.length) return null;
-  const all = strong.map(a => a.id);
-  const fresh = strong.filter(a => !isStale(rs.areas[a.id])).map(a => a.id);
-  const label = id => roleFocusAreas().find(a => a.id === id).label;
-  const match = ids => role.profileRules.find(r => r.must.every(id => ids.includes(id)));
-
-  let rule = match(fresh);
-  if (rule) return { kicker: "Currently marketable as", profile: rule.profile,
-    detail: "Owned or led, and hands-on recently: " + rule.must.map(label).join(", ") + "." };
-  rule = match(all);
-  if (rule) {
-    const old = rule.must.filter(id => !fresh.includes(id));
-    return { kicker: "Was marketable as", profile: rule.profile + " (stale)",
-      detail: "Only matches by counting skills they haven't used hands-on in " + staleCutoff() + "+ years: " +
-        old.map(label).join(", ") + ". Confirm they can ramp back up before positioning them this way." };
+  const top = rankedFits()[0];
+  if (top && top.fit > 0) {
+    const card = el("div", "profile-card");
+    card.appendChild(el("div", "profile-kicker", "Leading fit so far"));
+    card.appendChild(el("div", "profile-name", esc(top.r.role.label) + " · " + Math.round(top.fit * 100) + "%"));
+    card.appendChild(el("p", "profile-detail",
+      (top.profile ? esc(top.profile.kicker + ": " + top.profile.profile) + ". " : "") +
+      "See Role Fit for the full ranking across every role."));
+    container.appendChild(card);
   }
-  const ids = fresh.length ? fresh : all;
-  return { kicker: "Strongest areas", profile: ids.map(label).join(" + "),
-    detail: "No standard profile for this role matches — position them on demonstrated results in these areas." };
 }
 
-function renderProfileCard(container) {
-  const p = computeProfile();
-  if (!p) return;
-  const card = el("div", "profile-card");
-  card.appendChild(el("div", "profile-kicker", esc(p.kicker)));
-  card.appendChild(el("div", "profile-name", esc(p.profile)));
-  card.appendChild(el("p", "profile-detail", esc(p.detail)));
-  container.appendChild(card);
-}
-
-/* Short badge text for a rated area, e.g. "Owned · 6–9 yrs · Now". */
+/* Short badge text for a rated skill, e.g. "Owned · 6–9 yrs · Now". */
 function depthBadge(a) {
   const parts = [depthLabel(a.depth)];
   if (a.years) parts.push(a.years + " yrs");
@@ -1222,8 +1076,8 @@ function depthBadge(a) {
   return parts.join(" · ");
 }
 
-/* Full export line for a rated area. */
-function depthDetail(a) {
+/* Full export line for a rated skill. */
+function depthDetail(a, id) {
   if (a.depth === "none") return "None — asked, no real experience";
   const parts = [depthLabel(a.depth)];
   if (a.years) parts.push(a.years + " yrs");
@@ -1239,91 +1093,244 @@ function depthDetail(a) {
   const it = INTEREST_OPTIONS.find(o => o.id === a.interest);
   if (it) parts.push(it.label.toLowerCase());
   let out = parts.join(" · ");
-  if (isStale(a)) out += " — ⚠ not hands-on in " + yearsSinceHandsOn(a) + " years";
+  if (isStale(a, id)) out += " — ⚠ not hands-on in " + yearsSinceHandsOn(a) + " years";
   return out;
 }
 
-/* ---------- deep dives ---------- */
+/* ---------- technical deep dive ---------- */
 
 /* Every deep dive ends with a proof point — the specific example behind the
-   depth rating. Kept out of the catalogs so they stay byte-identical. */
+   depth rating. */
 const PROOF_QUESTION = {
   id: "proof_point", type: "textarea", label: "Proof point — one specific example",
   placeholder: "Situation → what they personally did → the result (numbers if they have them)"
 };
-function diveQuestions(area) { return area.deepDive.questions.concat([PROOF_QUESTION]); }
+function diveQuestions(def) { return def.capture.concat([PROOF_QUESTION]); }
 
-function renderDeepDivesStep(main) {
-  const role = activeRole();
-  if (!role) return needsRoleNotice(main, stackStepLabel());
+/* rated skills worth a deep dive (Exposure or deeper), strongest first */
+function divedSkills() {
+  return interviewSkills()
+    .filter(s => depthRank(state.skills[s.id]) >= DEPTH_RANK.exposure)
+    .sort((x, y) => depthRank(state.skills[y.id]) - depthRank(state.skills[x.id]));
+}
 
-  main.appendChild(el("h2", null, esc(stackStepLabel())));
-  const rs = roleState();
-  const rated = roleFocusAreas()
-    .filter(a => depthRank(rs.areas[a.id]) >= DEPTH_RANK.exposure)
-    .sort((x, y) => depthRank(rs.areas[y.id]) - depthRank(rs.areas[x.id]));
+/* tool categories across the shortlisted roles, merged by label */
+function toolCategories() {
+  const cats = [];
+  shortlistRoles().forEach(r => r.role.tools.forEach(c => {
+    const key = c.label.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    const found = cats.find(x => x.key === key);
+    if (found) c.options.forEach(o => { if (!found.options.includes(o)) found.options.push(o); });
+    else cats.push({ key, label: c.label, options: c.options.slice() });
+  }));
+  return cats;
+}
 
-  if (!rated.length) {
-    main.appendChild(el("p", "subtitle", "No areas rated yet — go back to Experience Depth and rate the areas you discussed. Their drill-downs appear here, above the general tool questions."));
-  } else {
-    main.appendChild(el("p", "subtitle",
-      "Drill-downs for every area you rated — owned and led areas open, the rest collapsed — followed by the general tool questions. Record what they have actually done."));
-  }
+function toolQuestions() {
+  return toolCategories().map(c => ({ id: c.key, type: "chips", label: c.label, options: c.options }));
+}
 
-  rated.forEach(area => {
-    const a = rs.areas[area.id];
+function aiQuestions() {
+  return [
+    { id: "usage", type: "chips", label: "How they use AI in their work", options: shortlistOptions("aiUse") },
+    { id: "tools", type: "chips", label: "AI tools they've used", options: shortlistOptions("aiTools") },
+    { id: "example", type: "textarea", label: "Best example of AI in their work",
+      placeholder: "What they built or sped up, and the result" }
+  ];
+}
+
+function renderDivesStep(main) {
+  if (!state.shortlist.length && !(state.customSkills || []).length) return needsRoleNotice(main, "Technical Deep Dive");
+
+  main.appendChild(el("h2", null, "Technical Deep Dive"));
+  const dived = divedSkills();
+  main.appendChild(el("p", "subtitle", dived.length
+    ? "A deep dive for every skill rated Exposure or above — strongest first. Ask the questions in order, listen for the signals, and record what they actually did."
+    : "No skills rated yet — rate them on Experience Depth and their deep dives appear here."));
+
+  const teammates = [];
+  shortlistRoles().forEach(r => r.role.teammates.forEach(t => { if (t.skill) teammates.push(t); }));
+  const onTeam = state.common.history.teammates || [];
+
+  dived.forEach(s => {
+    const a = state.skills[s.id];
     const strong = depthRank(a) >= DEPTH_RANK.owned;
     const details = el("details", "dive" + (strong ? " must" : ""));
     if (strong) details.open = true;
 
     const summary = el("summary");
-    summary.appendChild(el("span", "dive-title", area.icon + " " + esc(area.label)));
-    summary.appendChild(el("span", "dive-badge " + (isStale(a) ? "badge-stale" : strong ? "badge-must" : "badge-nice"),
+    summary.appendChild(el("span", "dive-title", s.def.icon + " " + esc(s.def.label)));
+    summary.appendChild(el("span", "dive-badge " + (isStale(a, s.id) ? "badge-stale" : strong ? "badge-must" : "badge-nice"),
       esc(depthBadge(a))));
     details.appendChild(summary);
 
     const body = el("div", "dive-body");
-    if (area.deepDive.intro) body.appendChild(el("p", "q-help", esc(area.deepDive.intro)));
-    const answers = rs.deepDives[area.id];
+    body.appendChild(el("p", "q-help", esc(s.def.what)));
+
+    const ask = el("div", "dive-ask");
+    ask.appendChild(el("div", "dive-ask-title", "Ask"));
+    const ol = el("ol");
+    s.def.ask.forEach(q => ol.appendChild(el("li", null, esc(q))));
+    ask.appendChild(ol);
+    body.appendChild(ask);
+
+    const signals = el("div", "dive-signals");
+    const good = el("div", "dive-signal good");
+    good.appendChild(el("div", "dive-signal-title", "✓ Strong answers include"));
+    good.appendChild(el("p", null, esc(s.def.listen)));
+    const bad = el("div", "dive-signal bad");
+    bad.appendChild(el("div", "dive-signal-title", "⚠ Red flags"));
+    bad.appendChild(el("p", null, esc(s.def.red)));
+    signals.appendChild(good);
+    signals.appendChild(bad);
+    body.appendChild(signals);
+
+    /* a specialist on their team overlapping a skill they rate as owned —
+       separate what they did from what the specialist did */
+    if (strong) {
+      teammates.filter(t => t.skill === s.id && onTeam.includes(t.label)).slice(0, 1).forEach(t => {
+        body.appendChild(el("div", "tip warn",
+          "⚠️ Their team had a dedicated " + esc(t.label) + ". Separate what they owned from what the " + esc(t.label) + " did."));
+      });
+    }
+
     const qContainer = el("div", "questions");
     body.appendChild(qContainer);
-    /* The catalog's deep-dive tips coach a client intake ("confirm with the
-       client…"), so they stay hidden until the interview overlay rewrites
-       them as probes. */
-    renderQuestions(qContainer, diveQuestions(area), answers, "dive_" + area.id);
+    renderQuestions(qContainer, diveQuestions(s.def), state.dives[s.id] || (state.dives[s.id] = {}), "dive_" + s.id);
     details.appendChild(body);
     main.appendChild(details);
   });
 
-  /* cross-check: a specialist on their team overlapping an area they rate
-     as owned — separate what they did from what the specialist did */
-  const specialists = state.common.team.specialists || [];
-  const crossTips = el("div", "tips");
-  rated.filter(area => depthRank(rs.areas[area.id]) >= DEPTH_RANK.owned).forEach(area => {
-    const spec = role.specialists.find(s => s.overlapsArea === area.id);
-    if (spec && specialists.includes(spec.label)) {
-      crossTips.appendChild(el("div", "tip warn",
-        "⚠️ Their team had a dedicated " + esc(spec.label) + ", and " + esc(area.label) +
-        " is rated " + esc(depthLabel(rs.areas[area.id].depth)) + ". Separate what they owned from what the " +
-        esc(spec.label) + " did."));
-    }
-  });
-  main.appendChild(crossTips);
-
-  /* ---- general tool / platform questions (formerly their own step) ---- */
-  const stackDef = configStepDef("stack");
-  if (stackDef) {
+  const toolQs = toolQuestions();
+  if (toolQs.length) {
     main.appendChild(el("h3", "subhead", "🧰 Tools & Platforms"));
-    main.appendChild(el("p", "subtitle", esc(stackDef.subtitle)));
-    const qContainer = el("div", "questions");
-    const tipsContainer = el("div", "tips");
+    main.appendChild(el("p", "subtitle", "Tools they've used hands-on — not just been near. These also feed Role Fit."));
+    const qContainer = el("div", "questions tools-section");
     main.appendChild(qContainer);
-    main.appendChild(tipsContainer);
-    const refresh = () => renderTips(tipsContainer, stackDef.tips, stackDef.answers);
-    renderQuestions(qContainer, stackDef.questions, stackDef.answers, "stacksec", refresh);
-    if (stackDef.extra) stackDef.extra(qContainer);
-    refresh();
+    renderQuestions(qContainer, toolQs, state.tools, "tools");
   }
+
+  if (state.shortlist.length) {
+    main.appendChild(el("h3", "subhead", "🤖 AI in Their Work"));
+    const qContainer = el("div", "questions");
+    main.appendChild(qContainer);
+    renderQuestions(qContainer, aiQuestions(), state.ai, "ai");
+  }
+}
+
+/* ---------- role fit ---------- */
+
+function renderFitStep(main) {
+  main.appendChild(el("h2", null, "Role Fit"));
+  main.appendChild(el("p", "subtitle",
+    "Every role in every catalog, scored against the depth ratings. Pick the primary role to place them in, and any others they'd also fit."));
+
+  const fits = rankedFits().slice(0, 12);
+  if (!fits.some(f => f.fit > 0)) {
+    main.appendChild(el("div", "tip warn", "⚠️ Rate skills on Experience Depth to see how they fit each role."));
+  }
+
+  if (fits.length) {
+    const table = el("div", "fit-table");
+    fits.forEach(f => {
+      const row = el("div", "fit-row" + (state.fit.primary === f.key ? " primary" : ""));
+      const name = el("div", "fit-name");
+      name.appendChild(el("span", "fit-role", f.r.role.icon + " " + esc(f.r.role.label)));
+      name.appendChild(el("span", "fit-cat", esc(FORMS[f.r.cat].label) +
+        (state.shortlist.includes(f.key) ? " · exploring" : "")));
+      if (f.profile) name.appendChild(el("span", "fit-profile", esc(f.profile.kicker + ": " + f.profile.profile)));
+      row.appendChild(name);
+
+      const bar = el("div", "fit-bar-wrap");
+      const track = el("div", "fit-bar");
+      const fill = el("div", "fit-fill");
+      fill.style.width = Math.round(f.fit * 100) + "%";
+      track.appendChild(fill);
+      bar.appendChild(track);
+      bar.appendChild(el("span", "fit-pct", Math.round(f.fit * 100) + "%"));
+      bar.appendChild(el("span", "fit-cov", "rated " + f.rated + " of " + f.total + " skills"));
+      row.appendChild(bar);
+
+      const actions = el("div", "fit-actions");
+      const prim = el("label", "seg");
+      const pin = el("input");
+      pin.type = "radio"; pin.name = "fit_primary";
+      pin.checked = state.fit.primary === f.key;
+      pin.addEventListener("change", () => {
+        state.fit.primary = f.key;
+        state.fit.also = state.fit.also.filter(k => k !== f.key);
+        saveState(); render();
+      });
+      prim.appendChild(pin);
+      prim.appendChild(el("span", null, "Primary"));
+      actions.appendChild(prim);
+
+      const also = el("label", "chip");
+      const ain = el("input");
+      ain.type = "checkbox";
+      ain.checked = state.fit.also.includes(f.key);
+      ain.disabled = state.fit.primary === f.key;
+      ain.addEventListener("change", () => {
+        state.fit.also = ain.checked ? state.fit.also.concat([f.key]) : state.fit.also.filter(k => k !== f.key);
+        saveState();
+      });
+      also.appendChild(ain);
+      also.appendChild(el("span", null, "Also fits"));
+      actions.appendChild(also);
+
+      if (!state.shortlist.includes(f.key)) {
+        const ex = el("button", "btn small", "Explore");
+        ex.title = "Add this role's skills to Experience Depth";
+        ex.addEventListener("click", () => { toggleShortlist(f.key); currentStep = 2; render(); });
+        actions.appendChild(ex);
+      } else if (f.rated < f.total) {
+        actions.appendChild(el("span", "fit-hint", (f.total - f.rated) + " to rate"));
+      }
+      row.appendChild(actions);
+      table.appendChild(row);
+    });
+    main.appendChild(table);
+  }
+
+  const how = el("details", "fit-how");
+  how.appendChild(el("summary", null, "How fit is scored"));
+  how.appendChild(el("p", "q-help",
+    "Each role is scored on its own skills: None 0, Exposure 25%, Hands-on 60%, Owned 85%, Led 100%. Stale skills count at 60%. " +
+    "Unrated skills count as zero, so explore a role and rate its skills before trusting a low score. Skills most roles share (like AI in engineering work) count half. " +
+    "Once the candidate has 3+ tools recorded, tool overlap adds 20% to roles their skills already score on."));
+  main.appendChild(how);
+
+  main.appendChild(el("hr", "divider"));
+
+  const qs = el("div", "questions");
+  main.appendChild(qs);
+  const levelWrap = el("div", "question");
+  levelWrap.appendChild(el("label", "q-label", "Level to place them at"));
+  const suggestion = suggestedLevel(state.fit.primary || (fits[0] && fits[0].key));
+  if (suggestion) levelWrap.appendChild(el("p", "q-help", "Suggested from the depth ratings and team size: <strong>" + esc(suggestion) + "</strong>"));
+  const seg = el("div", "seg-group");
+  IV.levels.forEach(l => {
+    const lab = el("label", "seg");
+    const input = el("input");
+    input.type = "radio"; input.name = "fit_level";
+    input.checked = state.fit.level === l;
+    input.addEventListener("change", () => { state.fit.level = l; saveState(); });
+    lab.appendChild(input);
+    lab.appendChild(el("span", null, esc(l)));
+    seg.appendChild(lab);
+  });
+  levelWrap.appendChild(seg);
+  qs.appendChild(levelWrap);
+
+  const notesWrap = el("div", "question");
+  notesWrap.appendChild(el("label", "q-label", "Why this role — in your words"));
+  const ta = el("textarea");
+  ta.rows = 3;
+  ta.placeholder = "What makes them a fit, and what gap a client would ask about";
+  ta.value = state.fit.notes || "";
+  ta.addEventListener("input", () => { state.fit.notes = ta.value; saveState(); });
+  notesWrap.appendChild(ta);
+  qs.appendChild(notesWrap);
 }
 
 /* ---------- review + export ---------- */
@@ -1342,72 +1349,114 @@ function normalizeUrl(v) {
   return /^https?:\/\//i.test(s) ? s : "https://" + s;
 }
 
-function collectConfigSection(def) {
+function fmtMoney(v) {
+  const n = parseFloat(v);
+  return isNaN(n) ? "" : "$" + n.toLocaleString("en-US");
+}
+
+function payLine(q, v) {
+  if (!v || typeof v !== "object") return null;
+  const unit = q.unit || "";
+  const lo = fmtMoney(v.min), hi = fmtMoney(v.max), floor = fmtMoney(v.floor);
+  const parts = [];
+  if (lo || hi) parts.push("ideal " + [lo, hi].filter(Boolean).join("–") + unit);
+  if (floor) parts.push("bottom end " + floor + unit);
+  return parts.length ? { label: q.label, value: parts.join(" · "), id: q.id } : null;
+}
+
+/* Lines for a set of questions, skipping hidden ones; handles every type. */
+function collectQuestionLines(questions, answers) {
   const lines = [];
-  def.questions.forEach(q => {
-    if (q.showIf && !q.showIf(def.answers, state)) return;
-    /* ranked lists (e.g. Top 3 must-haves) export as a numbered sequence */
+  questions.forEach(q => {
+    if (q.showIf && !q.showIf(answers, state)) return;
+    const v = answers[q.id];
     if (q.type === "textlist") {
-      const items = (def.answers[q.id] || []).map(v => String(v || "").trim()).filter(Boolean);
-      if (items.length) lines.push({ label: q.label, value: items.map((v, i) => (i + 1) + ") " + v).join("  "), id: q.id });
+      const items = (v || []).map(x => String(x || "").trim()).filter(Boolean);
+      if (items.length) lines.push({ label: q.label, value: items.map((x, i) => (i + 1) + ") " + x).join("  "), id: q.id });
       return;
     }
-    const line = answerLine(q.label, def.answers[q.id], q.id);
-    if (line) lines.push(line);
+    if (q.type === "group") {
+      (v || []).forEach((item, i) => {
+        if (!item) return;
+        const get = k => String(item[k] || "").trim();
+        const headFields = q.fields.filter(f => !f.long).map(f => get(f.id)).filter(Boolean);
+        const longFields = q.fields.filter(f => f.long && get(f.id)).map(f => f.label + ": " + get(f.id));
+        if (!headFields.length && !longFields.length) return;
+        lines.push({ label: q.label.replace(/s$/, "") + " " + (i + 1),
+          value: [headFields.join(" — "), longFields.join(". ")].filter(Boolean).join(". "), id: q.id + "_" + i });
+      });
+      return;
+    }
+    if (q.type === "payrange") { const l = payLine(q, v); if (l) lines.push(l); return; }
+    const line = answerLine(q.label, v, q.id);
+    if (line) {
+      if (q.link) line.href = normalizeUrl(line.value);
+      lines.push(line);
+    }
   });
+  return lines;
+}
+
+function collectCommon(key) {
+  const def = commonStepDef(key);
+  const lines = collectQuestionLines(def.questions, def.answers);
+  if (key === "next") lines.unshift(...availabilityLines());
   return lines.length ? { title: def.title, lines } : null;
 }
 
+function roleName(key) { const r = roleByKey(key); return r ? r.role.label : ""; }
+
 function collectSummary() {
   const sections = [];
-  const role = activeRole();
 
-  /* Basics (prepend role) */
-  const basicsLines = [];
-  if (role) basicsLines.push({ label: "Role type", value: role.label });
-  activeForm().common.basics.questions.forEach(q => {
-    if (q.showIf && !q.showIf(state.common.basics, state)) return;
-    const line = answerLine(q.label, state.common.basics[q.id], q.id);
-    if (line) {
-      if (q.id === "company_website") line.href = normalizeUrl(line.value);
-      basicsLines.push(line);
-    }
-  });
-  if (basicsLines.length) sections.push({ title: "Role & Basic Information", lines: basicsLines });
-
-  /* Output ordered by what a recruiter needs first: who the candidate is,
-     what they've actually done (depth, then the evidence behind it), then
-     what they want, the logistics, and finally the analysis and raw notes. */
-  if (role) {
-    const rs = roleState();
-    const rated = roleFocusAreas().filter(a => depthRank(rs.areas[a.id]) >= 0)
-      .sort((a, b) => depthRank(rs.areas[b.id]) - depthRank(rs.areas[a.id]));
-    if (rated.length) {
-      const lines = rated.map(a => ({ label: a.label, value: depthDetail(rs.areas[a.id]), id: "depth_" + a.id }));
-      const profile = computeProfile();
-      if (profile) lines.push({ label: profile.kicker, value: profile.profile + " — " + profile.detail, id: "placement_profile" });
-      sections.push({ title: "Experience Depth", lines });
-    }
-    /* Deep dives — every area rated Exposure or deeper, strongest first */
-    rated.filter(a => depthRank(rs.areas[a.id]) >= DEPTH_RANK.exposure).forEach(area => {
-      const answers = rs.deepDives[area.id];
-      const lines = [];
-      diveQuestions(area).forEach(q => {
-        if (q.showIf && !q.showIf(answers, state)) return;
-        const line = answerLine(q.label, answers[q.id], q.id);
-        if (line) lines.push(line);
-      });
-      if (lines.length) sections.push({
-        title: area.label + " (" + depthLabel(rs.areas[area.id].depth) + ")", lines });
-    });
-    const stack = collectConfigSection(configStepDef("stack")); if (stack) sections.push(stack);
-    const success = collectConfigSection(configStepDef("success")); if (success) sections.push(success);
+  const cand = collectCommon("candidate");
+  const roles = shortlistRoles();
+  if (roles.length) {
+    const line = { label: "Roles explored", value: roles.map(r => r.role.label).join(", "), id: "roles_explored" };
+    if (cand) cand.lines.push(line); else sections.push({ title: "Candidate", lines: [line] });
   }
-  const logistics = collectConfigSection(configStepDef("logistics")); if (logistics) sections.push(logistics);
+  if (cand) sections.push(cand);
 
-  const team = collectConfigSection(configStepDef("team")); if (team) sections.push(team);
-  const closing = collectConfigSection(configStepDef("closing")); if (closing) sections.push(closing);
-  const closeLines = closeNextLines(); if (closeLines.length) sections.push({ title: "Close To The Next Steps", lines: closeLines });
+  /* Role fit first — the answer to "where do we place them?" */
+  const fitLines = [];
+  if (state.fit.primary) fitLines.push({ label: "Primary role", value: roleName(state.fit.primary), id: "fit_primary" });
+  if (state.fit.also.length) fitLines.push({ label: "Also fits", value: state.fit.also.map(roleName).join(", "), id: "fit_also" });
+  if (state.fit.level) fitLines.push({ label: "Level", value: state.fit.level, id: "fit_level" });
+  const top = rankedFits().filter(f => f.fit > 0).slice(0, 5);
+  if (top.length) {
+    fitLines.push({ label: "Top fits", id: "fit_top",
+      value: top.map(f => f.r.role.label + " " + Math.round(f.fit * 100) + "% (" + f.rated + "/" + f.total + " rated)").join(" · ") });
+  }
+  const primaryFit = state.fit.primary && roleFit(state.fit.primary);
+  if (primaryFit && primaryFit.profile) {
+    fitLines.push({ label: primaryFit.profile.kicker, value: primaryFit.profile.profile, id: "fit_profile" });
+  }
+  if ((state.fit.notes || "").trim()) fitLines.push({ label: "Why this role", value: state.fit.notes.trim(), id: "fit_notes" });
+  if (fitLines.length) sections.push({ title: "Role Fit", lines: fitLines });
+
+  const history = collectCommon("history"); if (history) sections.push(history);
+
+  /* Experience depth, strongest first, then each skill's deep dive */
+  const skills = interviewSkills();
+  const rated = skills.filter(s => depthRank(state.skills[s.id]) >= 0)
+    .sort((x, y) => depthRank(state.skills[y.id]) - depthRank(state.skills[x.id]));
+  if (rated.length) {
+    sections.push({ title: "Experience Depth",
+      lines: rated.map(s => ({ label: s.def.label, value: depthDetail(state.skills[s.id], s.id), id: "depth_" + s.id })) });
+  }
+  divedSkills().forEach(s => {
+    const lines = collectQuestionLines(diveQuestions(s.def), state.dives[s.id] || {});
+    if (lines.length) sections.push({ title: s.def.label + " (" + depthLabel(state.skills[s.id].depth) + ")", lines });
+  });
+
+  const tools = collectQuestionLines(toolQuestions(), state.tools);
+  if (tools.length) sections.push({ title: "Tools & Platforms", lines: tools });
+  if (state.shortlist.length) {
+    const ai = collectQuestionLines(aiQuestions(), state.ai);
+    if (ai.length) sections.push({ title: "AI in Their Work", lines: ai });
+  }
+
+  ["wants", "pay", "next"].forEach(k => { const s = collectCommon(k); if (s) sections.push(s); });
 
   /* AI analysis → free-text section */
   if (state.aiAnalysis && (state.aiAnalysis.text || "").trim())
@@ -1417,15 +1466,16 @@ function collectSummary() {
   if ((state.notes.live || "").trim())
     sections.push({ title: "Live Notes", text: state.notes.live.trim() });
   if ((state.notes.pretext || "").trim())
-    sections.push({ title: "Job Description / Pre-Meeting Info", text: state.notes.pretext.trim() });
+    sections.push({ title: "Résumé / Pre-Call Notes", text: state.notes.pretext.trim() });
 
   return sections;
 }
 
-function jobTitleLine() {
-  const b = state.common.basics;
-  const base = b.job_title || (activeRole() ? activeRole().label : "Job Order");
-  return base + (b.client_company ? " — " + b.client_company : "");
+function titleLine() {
+  const c = state.common.candidate;
+  const name = (c.full_name || "").trim() || "Candidate interview";
+  const role = state.fit.primary ? roleName(state.fit.primary) : (c.current_title || "").trim();
+  return name + (role ? " — " + role : "");
 }
 
 /* ---------- feedback email ----------
@@ -1435,7 +1485,7 @@ function jobTitleLine() {
    Outlook web compose deep link if the page never loses focus. */
 
 const FEEDBACK_TO = "david.sheehan@roberthalf.com";
-const FEEDBACK_SUBJECT = "RH Job Order Form Feedback";
+const FEEDBACK_SUBJECT = "RH Candidate Interview Form Feedback";
 
 function feedbackMailto() {
   return "mailto:" + FEEDBACK_TO + "?subject=" + encodeURIComponent(FEEDBACK_SUBJECT);
@@ -1479,7 +1529,7 @@ function downloadBlob(blob, filename) {
 }
 
 function printSummary() {
-  printDoc(jobTitleLine(), "Intake completed " + new Date().toLocaleDateString(), collectSummary());
+  printDoc(titleLine(), "Interviewed " + fmtDate(interviewDate()), collectSummary());
 }
 
 function printDoc(title, subtitle, sections) {
@@ -1520,16 +1570,15 @@ function printDoc(title, subtitle, sections) {
 }
 
 function fileBase() {
-  const b = state.common.basics;
-  const base = b.job_title || (activeRole() ? activeRole().label : "job-order");
-  return base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "job-order";
+  const base = (state.common.candidate.full_name || "").trim() || "candidate-interview";
+  return base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "candidate-interview";
 }
 
 /* ---------- AI analysis ----------
    Calls the /api/analyze serverless endpoint (Vercel function holding the
    Anthropic API key). Endpoint + optional team code are UI settings stored
    under their own key, so "Start new interview" keeps them; the analysis
-   RESULT lives in job-order state and is cleared by reset. */
+   RESULT lives in the interview record and is cleared by reset. */
 
 const AI_CONFIG_KEY = "rh-interview-ai-config";
 
@@ -1569,10 +1618,10 @@ function renderAiSection(main) {
   const box = el("div", "ai-box");
   box.appendChild(el("div", "ai-head", "🤖 AI Analysis"));
   box.appendChild(el("p", "q-help",
-    "Sends the completed job order to your team's AI endpoint for a fillability read, gap check, sourcing kit, and candidate pitch. The result is added to the export."));
+    "Sends the interview to your team's AI endpoint for a role-fit read, strengths and gaps, the probes you missed, and a candidate summary. The result is added to the export."));
 
   const controls = el("div", "actions");
-  const runBtn = el("button", "btn primary", state.aiAnalysis ? "🔄 Re-analyze job order" : "✨ Analyze job order");
+  const runBtn = el("button", "btn primary", state.aiAnalysis ? "🔄 Re-analyze interview" : "✨ Analyze interview");
   controls.appendChild(runBtn);
   box.appendChild(controls);
 
@@ -1623,7 +1672,7 @@ function renderAiSection(main) {
         headers,
         body: JSON.stringify({
           summary: summaryMarkdown(),
-          role: activeRole() ? activeRole().label : ""
+          role: state.fit.primary ? roleName(state.fit.primary) : shortlistRoles().map(r => r.role.label).join(", ")
         })
       });
       let data = null;
@@ -1637,7 +1686,7 @@ function renderAiSection(main) {
       return;
     } catch (err) {
       status.textContent = "⚠️ " + (err && err.message ? err.message : "Analysis failed — check the endpoint settings.");
-      runBtn.textContent = state.aiAnalysis ? "🔄 Re-analyze job order" : "✨ Analyze job order";
+      runBtn.textContent = state.aiAnalysis ? "🔄 Re-analyze interview" : "✨ Analyze interview";
     } finally {
       runBtn.disabled = false;
     }
@@ -1649,35 +1698,30 @@ function renderAiSection(main) {
 function renderReviewStep(main) {
   main.appendChild(el("h2", null, "Review & Export"));
 
-  const role = activeRole();
-  const b = state.common.basics, lg = state.common.logistics;
-  const rs = role ? roleState() : null;
-  const rated = role ? roleFocusAreas().filter(a => depthRank(rs.areas[a.id]) >= 0) : [];
-  const handsOn = rated.filter(a => depthRank(rs.areas[a.id]) >= DEPTH_RANK.exposure);
-  const strong = rated.filter(a => depthRank(rs.areas[a.id]) >= DEPTH_RANK.owned);
+  const c = state.common.candidate, pay = state.common.pay;
+  const skills = interviewSkills();
+  const rated = skills.filter(s => depthRank(state.skills[s.id]) >= 0);
+  const dived = divedSkills();
+  const strong = dived.filter(s => depthRank(state.skills[s.id]) >= DEPTH_RANK.owned);
+  const hasPay = ["hourly", "salary"].some(k => pay[k] && (String(pay[k].min || "").trim() || String(pay[k].max || "").trim()));
 
   const checks = [
-    { ok: !!role, text: "Role selected" },
-    { ok: !!(b.client_company || "").trim(), text: "Client company captured" },
-    { ok: !!(b.why_hiring || "").trim(), text: "Business problem / reason for hiring captured" },
-    { ok: !!(lg.budget || "").trim(), text: "Budget captured" },
-    { ok: !!(lg.start_date || "").trim(), text: "Clear start date captured" },
-    { ok: rated.length >= 3, text: "At least 3 focus areas rated" },
-    { ok: handsOn.length > 0 && handsOn.every(a => typeof rs.areas[a.id].last === "number" || rs.areas[a.id].last === "current"),
-      text: "Last hands-on year captured for every rated area" },
-    { ok: strong.length > 0 && strong.every(a => !!(rs.deepDives[a.id].proof_point || "").trim()),
-      text: "Proof point on every Owned / Led area" },
-    { ok: !!(rs && (rs.success.success_6_12 || "").trim()), text: "6–12 month success definition captured" },
-    { ok: closeNextLines().length > 0, text: "Close-to-next-steps path selected" }
+    { ok: !!(c.full_name || "").trim() && !!((c.email || "").trim() || (c.phone || "").trim()), text: "Name and a way to reach them" },
+    { ok: state.shortlist.length > 0, text: "At least one role explored" },
+    { ok: rated.length >= 3, text: "At least 3 skills rated" },
+    { ok: dived.length > 0 && dived.every(s => { const l = state.skills[s.id].last; return typeof l === "number" || l === "current"; }),
+      text: "Last hands-on year for every rated skill" },
+    { ok: strong.length > 0 && strong.every(s => !!((state.dives[s.id] || {}).proof_point || "").trim()),
+      text: "Proof point on every Owned / Led skill" },
+    { ok: !!state.fit.primary, text: "Primary role chosen on Role Fit" },
+    { ok: !!pay.pay_type && hasPay, text: "Pay type and ideal range" },
+    { ok: availabilityLines().length > 0, text: "Interview availability" }
   ];
   const list = el("div", "checklist");
-  checks.forEach(c => list.appendChild(el("div", "check " + (c.ok ? "ok" : "miss"), (c.ok ? "✅ " : "⬜ ") + esc(c.text))));
+  checks.forEach(ch => list.appendChild(el("div", "check " + (ch.ok ? "ok" : "miss"), (ch.ok ? "✅ " : "⬜ ") + esc(ch.text))));
   main.appendChild(list);
-  const missing = checks.filter(c => !c.ok).length;
-  if (missing > 0) {
-    main.appendChild(el("div", "tip warn",
-      "⚠️ " + missing + " item(s) still open."));
-  }
+  const missing = checks.filter(ch => !ch.ok).length;
+  if (missing > 0) main.appendChild(el("div", "tip warn", "⚠️ " + missing + " item(s) still open."));
 
   const actions = el("div", "actions");
   const copyBtn = el("button", "btn primary", "📋 Copy summary");
@@ -1694,9 +1738,9 @@ function renderReviewStep(main) {
   });
   const wordBtn = el("button", "btn", "📄 Download Word doc");
   wordBtn.addEventListener("click", () => {
-    const bytes = buildJobOrderDocx(jobTitleLine(), new Date().toLocaleDateString(), collectSummary());
+    const bytes = buildInterviewDocx(titleLine(), "Interviewed " + fmtDate(interviewDate()), collectSummary());
     const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
-    downloadBlob(blob, fileBase() + "-job-order.docx");
+    downloadBlob(blob, fileBase() + "-interview.docx");
     wordBtn.textContent = "✓ Downloaded";
     setTimeout(() => (wordBtn.textContent = "📄 Download Word doc"), 1500);
   });
@@ -1708,7 +1752,7 @@ function renderReviewStep(main) {
   renderAiSection(main);
 
   const summary = el("div", "summary");
-  summary.appendChild(el("h3", null, esc(jobTitleLine())));
+  summary.appendChild(el("h3", null, esc(titleLine())));
   const sections = collectSummary();
   if (!sections.length) summary.appendChild(el("p", "q-help", "Nothing captured yet — work through the steps and the summary will build itself here."));
   sections.forEach(sec => {
@@ -1727,7 +1771,7 @@ function renderReviewStep(main) {
 }
 
 function summaryMarkdown() {
-  let md = "# Job Order: " + jobTitleLine() + "\n\n_Intake completed " + new Date().toLocaleDateString() + "_\n";
+  let md = "# Candidate Interview: " + titleLine() + "\n\n_Interviewed " + fmtDate(interviewDate()) + "_\n";
   collectSummary().forEach(sec => {
     md += "\n## " + sec.title + "\n\n";
     if (sec.text) { md += sec.text + "\n"; return; }
@@ -1740,44 +1784,45 @@ function summaryMarkdown() {
 
 /* ---------- shell ---------- */
 
+function truthy(v) {
+  if (Array.isArray(v)) return v.some(x => x && typeof x === "object" ? Object.values(x).some(truthy) : truthy(x));
+  if (v && typeof v === "object") return Object.values(v).some(truthy);
+  return !!(v && String(v).trim());
+}
+
 function stepDone(w) {
-  if (w.kind === "basics") return !!state.roleId || Object.keys(state.common.basics).some(k => truthy(state.common.basics[k]));
-  if (w.kind === "config") {
-    const def = configStepDef(w.key);
-    if (!def) return false;
-    return def.questions.some(q => truthy(def.answers[q.id]));
-  }
-  if (w.kind === "depth") return !!activeRole() && roleFocusAreas().some(a => depthRank(roleState().areas[a.id]) >= 0);
-  if (w.kind === "deepdives") {
-    if (!activeRole()) return false;
-    const dd = roleFocusAreas().some(a =>
-      depthRank(roleState().areas[a.id]) >= DEPTH_RANK.exposure &&
-      Object.keys(roleState().deepDives[a.id]).some(k => truthy(roleState().deepDives[a.id][k])));
-    const def = configStepDef("stack");
-    const st = !!def && def.questions.some(q => truthy(def.answers[q.id]));
-    return dd || st;
-  }
+  if (w.kind === "candidate") return state.shortlist.length > 0 && truthy(state.common.candidate.full_name);
+  if (w.kind === "common") return Object.keys(state.common[w.key]).some(k => truthy(state.common[w.key][k]));
+  if (w.kind === "depth") return interviewSkills().some(s => depthRank(state.skills[s.id]) >= 0);
+  if (w.kind === "dives") return divedSkills().some(s => truthy(state.dives[s.id]));
+  if (w.kind === "fit") return !!state.fit.primary;
   return false;
 }
-function truthy(v) { return Array.isArray(v) ? v.length > 0 : !!(v && String(v).trim()); }
+
+/* The accent follows the placement: the primary role's catalog, else the
+   first role being explored, else the business toggle. */
+function accentForm() {
+  const r = roleByKey(state.fit.primary) || shortlistRoles()[0];
+  if (r) return r.cat;
+  return catalogsFor(store.businessId)[0];
+}
 
 function render() {
   const app = document.getElementById("app");
   app.innerHTML = "";
-  /* stamp the active form so its accent theme applies (see per-business
-     accent theme in styles.css) */
-  document.documentElement.dataset.form = store.formId;
-  const steps = wizardSteps();
-  /* saved step indexes can exceed the step count after a layout change */
-  if (currentStep >= steps.length) currentStep = steps.length - 1;
+  document.documentElement.dataset.form = accentForm();
+  if (currentStep >= STEPS.length) currentStep = STEPS.length - 1;
 
   const side = el("nav", "sidebar");
-  const brand = activeForm().brand;
-  side.appendChild(el("div", "brand", brand.title + "<br><span>" + brand.subtitle + "</span>"));
-  if (state.roleId) side.appendChild(el("div", "role-chip", activeForm().roles[state.roleId].icon + " " + esc(activeForm().roles[state.roleId].label)));
-  steps.forEach((w, i) => {
+  side.appendChild(el("div", "brand", esc(IV.brand.title) + "<br><span>" + esc(IV.brand.subtitle) + "</span>"));
+  const focus = roleByKey(state.fit.primary);
+  if (focus) side.appendChild(el("div", "role-chip", focus.role.icon + " " + esc(focus.role.label)));
+  else if (state.shortlist.length) {
+    side.appendChild(el("div", "role-chip", "🔎 Exploring " + state.shortlist.length + " role" + (state.shortlist.length === 1 ? "" : "s")));
+  }
+  STEPS.forEach((w, i) => {
     const btn = el("button", "nav-step" + (i === currentStep ? " active" : "") + (stepDone(w) ? " done" : ""));
-    btn.innerHTML = "<span class='nav-num'>" + (i + 1) + "</span> " + esc(stepTitle(w));
+    btn.innerHTML = "<span class='nav-num'>" + (i + 1) + "</span> " + esc(w.title);
     btn.addEventListener("click", () => { currentStep = i; render(); });
     side.appendChild(btn);
   });
@@ -1809,8 +1854,8 @@ function render() {
       return;
     }
     clearTimeout(armTimer);
-    state = blankJobOrder();
-    store.forms[store.formId] = state;
+    state = blankInterview();
+    store.interview = state;
     flushSave();
     currentStep = 0;
     render();
@@ -1826,43 +1871,30 @@ function render() {
   app.appendChild(side);
 
   const main = el("main", "panel");
+  const w = STEPS[currentStep];
 
-  /* Business selector (PTS / TTS), then the form toggle for that business.
-     Every switch lands on a fully separate job order. */
-  const bizBar = el("div", "form-toggle business-toggle");
-  bizBar.appendChild(el("span", "form-toggle-label", "Business"));
-  const bizSeg = el("div", "form-seg");
-  BUSINESS_ORDER.forEach(bid => {
-    if (!formsFor(bid).length) return;
-    const b = BUSINESSES[bid];
-    const btn = el("button", "form-seg-btn" + (store.businessId === bid ? " active" : ""), b.label);
-    btn.title = b.full;
-    btn.addEventListener("click", () => switchBusiness(bid));
-    bizSeg.appendChild(btn);
-  });
-  bizBar.appendChild(bizSeg);
-  main.appendChild(bizBar);
-
-  /* form toggle — only shown when the business hosts more than one form */
-  const bizForms = formsFor(store.businessId);
-  if (bizForms.length > 1) {
-    const formBar = el("div", "form-toggle");
-    formBar.appendChild(el("span", "form-toggle-label", "HSJF Job Order Type"));
-    const seg = el("div", "form-seg");
-    bizForms.forEach(id => {
-      const btn = el("button", "form-seg-btn" + (store.formId === id ? " active" : ""), FORMS[id].label);
-      btn.addEventListener("click", () => switchForm(id));
-      seg.appendChild(btn);
+  /* Business selector (PTS / TTS) filters the role picker on the first step. */
+  if (w.kind === "candidate") {
+    const bizBar = el("div", "form-toggle business-toggle");
+    bizBar.appendChild(el("span", "form-toggle-label", "Business"));
+    const bizSeg = el("div", "form-seg");
+    BUSINESS_ORDER.forEach(bid => {
+      if (!catalogsFor(bid).length) return;
+      const b = BUSINESSES[bid];
+      const btn = el("button", "form-seg-btn" + (store.businessId === bid ? " active" : ""), b.label);
+      btn.title = b.full;
+      btn.addEventListener("click", () => switchBusiness(bid));
+      bizSeg.appendChild(btn);
     });
-    formBar.appendChild(seg);
-    main.appendChild(formBar);
+    bizBar.appendChild(bizSeg);
+    main.appendChild(bizBar);
   }
 
-  const w = steps[currentStep];
-  if (w.kind === "basics") renderBasics(main);
-  else if (w.kind === "config") renderConfigLike(main, configStepDef(w.key));
+  if (w.kind === "candidate") renderCandidateStep(main);
+  else if (w.kind === "common") renderCommonStep(main, w.key);
   else if (w.kind === "depth") renderDepthStep(main);
-  else if (w.kind === "deepdives") renderDeepDivesStep(main);
+  else if (w.kind === "dives") renderDivesStep(main);
+  else if (w.kind === "fit") renderFitStep(main);
   else renderReviewStep(main);
 
   const nav = el("div", "step-nav");
@@ -1871,7 +1903,7 @@ function render() {
     prev.addEventListener("click", () => { currentStep--; render(); });
     nav.appendChild(prev);
   }
-  if (currentStep < steps.length - 1) {
+  if (currentStep < STEPS.length - 1) {
     const next = el("button", "btn primary", "Next →");
     next.addEventListener("click", () => { currentStep++; render(); });
     nav.appendChild(next);
@@ -1888,21 +1920,21 @@ function render() {
 function renderNotesPanel(app) {
   const panel = el("aside", "notes-panel");
 
-  /* plain-language explainer of the selected role, for reps outside the domain */
-  const role = activeRole();
-  if (role && role.about) {
+  /* plain-language explainer of the role in focus, for reps outside the domain */
+  const r = roleByKey(state.fit.primary) || shortlistRoles()[0];
+  if (r && r.role.about) {
     const box = el("div", "role-about");
     /* "an" before vowel-sounding starts (ERP, AI) — U reads as "you", so "a UX" */
-    const article = /^[AEIO]/.test(role.label) ? "an" : "a";
-    box.appendChild(el("div", "role-about-title", role.icon + " What is " + article + " " + esc(role.label) + "?"));
-    box.appendChild(el("p", "role-about-text", esc(role.about)));
+    const article = /^[AEIO]/.test(r.role.label) ? "an" : "a";
+    box.appendChild(el("div", "role-about-title", r.role.icon + " What is " + article + " " + esc(r.role.label) + "?"));
+    box.appendChild(el("p", "role-about-text", esc(r.role.about)));
     panel.appendChild(box);
   }
 
   panel.appendChild(el("div", "notes-head", "🗒️ Notes"));
-  panel.appendChild(el("p", "notes-sub", "Kept across every step and added to the exported job order."));
-  panel.appendChild(notesField("Job description / pre-meeting info", "pretext",
-    "Paste the job description or anything the client shared before the call…"));
+  panel.appendChild(el("p", "notes-sub", "Kept across every step and added to the export."));
+  panel.appendChild(notesField("Résumé / LinkedIn (paste before the call)", "pretext",
+    "Paste the résumé or LinkedIn profile before the call…"));
   panel.appendChild(notesField("Live notes", "live",
     "Jot anything they mention that isn't a field on this screen…"));
   app.appendChild(panel);
@@ -1910,9 +1942,7 @@ function renderNotesPanel(app) {
 
 /* One notes field. Text autosaves; a manual vertical resize is captured via
    ResizeObserver and stored (…H), then reapplied so the chosen height
-   survives step changes. Width is responsive — the rail flexes to fill the
-   space left over after the sidebar and main panel, so both boxes always
-   span the remaining screen width. */
+   survives step changes. */
 function notesField(labelText, key, placeholder) {
   const hKey = key + "H";
   const block = el("div", "notes-block");

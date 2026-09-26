@@ -1,5 +1,5 @@
 /* =========================================================================
-   AI job-order analysis — Vercel serverless function.
+   AI candidate-interview analysis — Vercel serverless function.
 
    Keeps the Anthropic API key server-side (set ANTHROPIC_API_KEY in the
    Vercel project's environment variables). Optionally set ACCESS_CODE to
@@ -7,31 +7,34 @@
    header by the app).
 
    POST /api/analyze
-   Body: { "summary": "<markdown job order summary>", "role": "<role label>" }
+   Body: { "summary": "<markdown interview summary>", "role": "<primary role or roles explored>" }
    Response: { "analysis": "<markdown>" }
    ========================================================================= */
 
 import Anthropic from "@anthropic-ai/sdk";
 
-const SYSTEM_PROMPT = `You are an expert staffing-industry analyst reviewing a job order that a sales rep captured during a client intake call. The role may be a technical/engineering role, a digital/marketing role, or a finance/accounting/management-consulting role — adapt your analysis to whichever it is. Your audience is the sales rep and the recruiters who will work this requisition.
+const SYSTEM_PROMPT = `You are an experienced staffing-industry recruiter reviewing notes a recruiter captured while interviewing a candidate. The candidate may be a finance/accounting professional, a technologist, or a digital/marketing/creative professional — adapt to whichever it is. Your audience is the recruiter and their team, deciding where to place this person. The notes are internal: they include pay expectations and contact details, which you may reference but should not repeat unnecessarily.
 
-Analyze the job order and respond in markdown with exactly these sections:
+The notes rate each skill on depth (None, Exposure, Hands-on, Owned, Led), years, last hands-on year, and how well the candidate evidenced it (walked through an example, described generally, or résumé only). Treat résumé-only and stale ratings (not hands-on for several years) as weaker evidence than recent, walked-through ones. The Role Fit section ranks roles by those ratings; use it as an input, not a verdict.
 
-## Fillability
-A score out of 10 with a two-sentence rationale: how realistic is this search given the requirements, budget signals, and market for this role?
+Respond in markdown with exactly these sections:
 
-## Gaps & Red Flags
-The missing or problematic items a recruiter will trip over — missing budget or timeline, too many must-haves, vague success criteria, contradictions (e.g., hands-on IC role but architect-level ownership, remote but clearance required), and anything that suggests the client hasn't fully decided what they want. Be specific; quote the job order where useful.
+## Placement Read
+Two or three sentences: the role and level this candidate is most placeable in, and why — grounded in the evidence in the notes. If the recruiter chose a primary role, say whether the evidence supports it.
 
-## Sourcing Kit
-- **Target titles:** the 3–5 titles recruiters should search for.
-- **Boolean search:** one ready-to-paste LinkedIn/Boolean string built from the must-have skills.
-- **Screening questions:** 4–6 questions derived from the must-have deep dives that separate real experience from keyword matches.
+## Strengths
+The 3–5 strongest, best-evidenced skills or accomplishments, citing the notes (depth, recency, proof points, numbers).
 
-## Candidate Pitch
-A short paragraph the recruiter can use to pitch this role to a candidate — lead with what makes it attractive, be honest about the environment.
+## Gaps & Risks
+What a client would push back on: thin evidence, stale skills, skills they want to avoid, pay or logistics mismatches, motivation or counteroffer risk, gaps in the career history. Be specific.
 
-Keep the whole analysis tight and practical — no filler, no generic advice that would apply to any job order. If the intake is too sparse to analyze meaningfully, say so plainly in Fillability and focus Gaps & Red Flags on what to go back and ask the client.`;
+## Probes You Missed
+4–6 follow-up questions the recruiter should ask to close the biggest open questions — especially for skills rated highly with weak evidence, and for anything that would change the placement.
+
+## Candidate Summary
+A short, factual paragraph the recruiter could adapt when presenting this candidate: role, level, strongest evidenced skills, and what they're looking for. Do not include pay, contact details, or the recruiter's private concerns in this paragraph.
+
+Keep it tight and practical — no filler and no generic advice that would apply to any candidate. If the notes are too sparse to assess, say so plainly in Placement Read and use Probes You Missed for what to go back and ask.`;
 
 function setCors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -44,7 +47,7 @@ export default async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed — POST a job order summary." });
+    return res.status(405).json({ error: "Method not allowed — POST an interview summary." });
   }
 
   const accessCode = process.env.ACCESS_CODE;
@@ -61,7 +64,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Request must include a non-empty 'summary' string." });
   }
   if (summary.length > 200_000) {
-    return res.status(413).json({ error: "Job order summary is too large." });
+    return res.status(413).json({ error: "Interview summary is too large." });
   }
 
   const client = new Anthropic();
@@ -79,8 +82,8 @@ export default async function handler(req, res) {
         {
           role: "user",
           content:
-            "Role type: " + (typeof role === "string" && role ? role : "not specified") +
-            "\n\nJob order intake summary:\n\n" + summary,
+            "Role(s): " + (typeof role === "string" && role ? role : "not specified") +
+            "\n\nCandidate interview notes:\n\n" + summary,
         },
       ],
     });
