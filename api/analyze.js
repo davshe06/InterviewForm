@@ -23,7 +23,7 @@ Respond in markdown with exactly these sections:
 Two or three sentences: the role and level this candidate is most placeable in, and why — grounded in the evidence in the notes. If the recruiter chose a primary role, say whether the evidence supports it.
 
 ## Strengths
-The 3–5 strongest, best-evidenced skills or accomplishments, citing the notes (depth, recency, proof points, numbers).
+The 3–5 strongest, best-evidenced skills or accomplishments, citing the notes (depth, recency, the experience details behind each rating, numbers).
 
 ## Gaps & Risks
 What a client would push back on: thin evidence, stale skills, skills they want to avoid, pay or logistics mismatches, motivation or counteroffer risk, gaps in the career history. Be specific.
