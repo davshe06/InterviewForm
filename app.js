@@ -52,7 +52,7 @@ function exploring(s, cat) {
 function blankInterview() {
   return {
     shortlist: [],
-    common: { candidate: {}, history: {}, wants: {}, pay: {}, next: {} },
+    common: { candidate: {}, history: {}, wants: {}, pay: {}, market: {}, next: {} },
     skills: {},          /* skill id → { depth, years, last, evidence, interest } */
     dives: {},           /* skill id → deep-dive answers, incl. proof_point */
     customSkills: [],    /* recruiter-added skills: { id, label } */
@@ -384,6 +384,7 @@ const STEPS = [
   { kind: "fit", title: "Role Fit" },
   { kind: "common", key: "wants", title: "What They Want" },
   { kind: "common", key: "pay", title: "Pay & Logistics" },
+  { kind: "common", key: "market", title: "References & Applications" },
   { kind: "common", key: "next", title: "Screening & Next Steps" },
   { kind: "review", title: "Review & Export" }
 ];
@@ -465,7 +466,9 @@ function renderQuestions(container, questions, answers, scopeId, onChange) {
       }
       wrap.appendChild(list);
     } else if (q.type === "group") {
-      /* N repeated mini-forms (e.g. positions), stored as an array of objects */
+      /* N repeated mini-forms (positions, references, applications), stored as
+         an array of objects. Fields are text (default), textarea (long), or
+         radio; a field with showIf(item) appears only when it applies. */
       if (!Array.isArray(answers[q.id])) answers[q.id] = [];
       const list = el("div", "group-list");
       for (let i = 0; i < (q.count || 3); i++) {
@@ -473,18 +476,41 @@ function renderQuestions(container, questions, answers, scopeId, onChange) {
         const card = el("div", "group-item");
         card.appendChild(el("div", "group-num", String(i + 1)));
         const grid = el("div", "group-grid");
+        const cells = [];
+        const refreshItem = () => cells.forEach(([f, cell]) => {
+          if (f.showIf) cell.classList.toggle("hidden", !f.showIf(item));
+        });
         q.fields.forEach(f => {
-          const cell = el("label", "group-field" + (f.long ? " long" : ""));
+          const cell = el(f.type === "radio" ? "div" : "label",
+            "group-field" + (f.long || f.type === "radio" ? " long" : ""));
+          cell.dataset.fid = f.id;
           cell.appendChild(el("span", "group-field-lab", esc(f.label)));
-          const input = el(f.long ? "textarea" : "input");
-          if (!f.long) input.type = "text";
-          else input.rows = 2;
-          input.placeholder = f.placeholder || "";
-          input.value = item[f.id] || "";
-          input.addEventListener("input", () => { item[f.id] = input.value; changed(); });
-          cell.appendChild(input);
+          if (f.type === "radio") {
+            const seg = el("div", "seg-group compact");
+            f.options.forEach(o => {
+              const lab = el("label", "seg");
+              const input = el("input");
+              input.type = "radio"; input.name = name + "__" + i + "__" + f.id;
+              input.checked = item[f.id] === o;
+              input.addEventListener("change", () => { item[f.id] = o; refreshItem(); changed(); });
+              lab.appendChild(input);
+              lab.appendChild(el("span", null, esc(o)));
+              seg.appendChild(lab);
+            });
+            cell.appendChild(seg);
+          } else {
+            const input = el(f.long ? "textarea" : "input");
+            if (!f.long) input.type = "text";
+            else input.rows = 2;
+            input.placeholder = f.placeholder || "";
+            input.value = item[f.id] || "";
+            input.addEventListener("input", () => { item[f.id] = input.value; changed(); });
+            cell.appendChild(input);
+          }
+          cells.push([f, cell]);
           grid.appendChild(cell);
         });
+        refreshItem();
         card.appendChild(grid);
         list.appendChild(card);
       }
@@ -1387,14 +1413,16 @@ function collectQuestionLines(questions, answers) {
       return;
     }
     if (q.type === "group") {
+      /* "Title — Company — Dates. Manager's name: …. What they owned: …" */
       (v || []).forEach((item, i) => {
         if (!item) return;
         const get = k => String(item[k] || "").trim();
-        const headFields = q.fields.filter(f => !f.long).map(f => get(f.id)).filter(Boolean);
-        const longFields = q.fields.filter(f => f.long && get(f.id)).map(f => f.label + ": " + get(f.id));
-        if (!headFields.length && !longFields.length) return;
-        lines.push({ label: q.label.replace(/s$/, "") + " " + (i + 1),
-          value: [headFields.join(" — "), longFields.join(". ")].filter(Boolean).join(". "), id: q.id + "_" + i });
+        const head = q.fields.filter(f => f.head).map(f => get(f.id)).filter(Boolean);
+        const rest = q.fields.filter(f => !f.head && (!f.showIf || f.showIf(item)) && get(f.id))
+          .map(f => f.label.replace(/\?$/, "") + ": " + get(f.id));
+        if (!head.length && !rest.length) return;
+        lines.push({ label: (q.itemLabel || q.label) + " " + (i + 1),
+          value: [head.join(" — "), rest.join(". ")].filter(Boolean).join(". "), id: q.id + "_" + i });
       });
       return;
     }
@@ -1467,7 +1495,7 @@ function collectSummary() {
     if (ai.length) sections.push({ title: "AI in Their Work", lines: ai });
   }
 
-  ["wants", "pay", "next"].forEach(k => { const s = collectCommon(k); if (s) sections.push(s); });
+  ["wants", "pay", "market", "next"].forEach(k => { const s = collectCommon(k); if (s) sections.push(s); });
 
   /* AI analysis → free-text section */
   if (state.aiAnalysis && (state.aiAnalysis.text || "").trim())

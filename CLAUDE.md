@@ -54,7 +54,7 @@ Load order (index.html): `skills-*.js` → `roles-*.js` → `interview.js` →
 | --- | --- | --- |
 | `skills-shared.js`, `skills-tech.js`, `skills-finance.js`, `skills-digital.js` | `window.SKILLS` | The skill registry (185 skills) |
 | `roles-management.js` (PTS), `roles-tech.js` (TTS), `roles-digital.js` (TTS) | `window.FORMS` | Role catalogs; roles reference skills by id |
-| `interview.js` | `window.INTERVIEW` | Role-independent steps: candidate, history, wants, pay, next |
+| `interview.js` | `window.INTERVIEW` | Role-independent steps: candidate, history, wants, pay, market (references & other applications), next |
 
 `app.js` is a **generic engine** — it knows nothing about specific roles or
 skills. One interview record (`state`) spans all catalogs; role keys are
@@ -103,12 +103,18 @@ backend_engineer: {
 
 Question types: `text`, `textarea`, `number`, `select`, `radio`, `chips`
 (always allows "+ Other…"), `textlist` (N numbered boxes), `group` (N repeated
-mini-forms — career positions), `payrange` (ideal low–high + bottom end).
+mini-forms — career positions, references, other applications), `payrange` (ideal low–high + bottom end).
 `optionsFrom: "certs" | "environments" | "metrics" | "teammates"` pulls chip
 options from the shortlisted roles. `link: true` exports as a hyperlink.
 `showIf(answers, state)` and tips' `when(answers, state)` as usual;
 `exploring(state, catalogId)` gates catalog-specific questions (e.g. MR
 capability pillars, Tech clearance).
+
+Group fields are `{ id, label, placeholder, head?, long?, type?: "radio",
+options?, showIf?(item) }`: `head` fields join into the item's lead line on
+export ("Title — Company — Dates"), the rest export as "Label: value";
+`showIf(item)` hides a field per item (e.g. the recruiting firm name appears
+only when "Through a recruiting firm?" is Yes). The validator checks them.
 
 ## Experience Depth — the model
 
