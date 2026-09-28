@@ -244,8 +244,9 @@ is `"type": "module"` for the Vercel function.)
 **Verify in a real browser before committing:** `node tools/browser-test.cjs`
 drives `file://index.html` in Chromium
 (`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`) through a full
-interview, every export, all 36 roles, persistence, dark mode, and 390px
-width; then serves a copy with GitHub Pages' caching headers to check that
+interview, every export, all 36 roles, persistence, dark mode, mid widths
+(800–1000px, where the notes rail drops below the form but the form must stay
+beside the sidebar), and 390px width; then serves a copy with GitHub Pages' caching headers to check that
 deploys show up without a hard refresh (with a no-service-worker control),
 the reload bar, and offline loading. It fails on any `pageerror` or console
 error. Extend it when behavior

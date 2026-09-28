@@ -1031,10 +1031,17 @@ textarea { resize: vertical; }
 
 /* Below ~1080px the notes rail drops beneath the main panel instead of
    sitting in a third column. */
+/* Mid-width windows (laptops, and desktops with display scaling): the notes
+   rail drops below the form, but the form stays beside the sidebar. A grid
+   keeps the sticky sidebar in its own column down the whole page — with a
+   wrapping flex row the form fell below the sidebar, which then covered its
+   left edge (including the PTS / TTS toggle) while scrolling. */
 @media (max-width: 1080px) {
-  #app { flex-wrap: wrap; }
-  .panel { min-width: 320px; }
+  #app { display: grid; grid-template-columns: 250px minmax(0, 1fr); align-items: start; }
+  .sidebar { grid-row: 1 / span 2; }
+  .panel { grid-column: 2; min-width: 0; max-width: 860px; }
   .notes-panel {
+    grid-column: 2;
     position: static;
     height: auto;
     width: 100%;
@@ -1047,7 +1054,7 @@ textarea { resize: vertical; }
 }
 
 @media (max-width: 760px) {
-  #app { flex-direction: column; }
+  #app { display: flex; flex-direction: column; }
   .sidebar {
     width: 100%;
     height: auto;

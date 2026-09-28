@@ -384,6 +384,27 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   await p.click('.theme-btn:has-text("Dark")');
   await step(3);
   await p.screenshot({ path: path.join(OUT, "depth-dark.png") });
+  /* mid widths (laptops, display scaling): the form sits beside the sidebar,
+     nothing covers the PTS / TTS toggle, and nothing scrolls sideways */
+  for (const w of [800, 900, 1000]) {
+    await p.setViewportSize({ width: w, height: 800 });
+    await step(1);
+    const layout = await p.evaluate(() => {
+      const side = document.querySelector(".sidebar").getBoundingClientRect();
+      const panel = document.querySelector(".panel").getBoundingClientRect();
+      const btn = [...document.querySelectorAll(".form-seg-btn")].find(b => b.textContent === "TTS");
+      btn.scrollIntoView({ block: "center" });
+      const r = btn.getBoundingClientRect();
+      return { beside: panel.left >= side.right - 1 && panel.top < 5,
+               hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === btn };
+    });
+    check(layout.beside && layout.hit, "at " + w + "px the form sits beside the sidebar and the TTS toggle is clickable");
+    for (const n of [1, 2, 3, 4, 5]) {
+      await step(n);
+      const overflow = await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      check(!overflow, "no horizontal scroll at " + w + "px on step " + n);
+    }
+  }
   await p.setViewportSize({ width: 390, height: 900 });
   for (const n of [1, 2, 3, 4, 5]) {
     await step(n);
